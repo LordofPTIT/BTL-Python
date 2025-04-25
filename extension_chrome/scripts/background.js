@@ -1,5 +1,5 @@
 // --- Configuration ---
-const DEFAULT_API_BASE_URL = 'http://localhost:5001';
+const DEFAULT_API_BASE_URL = 'https://btl-python.onrender.com/api';
 const DEFAULT_CACHE_EXPIRY_MINUTES = 60;
 const UPDATE_ALARM_NAME = 'updateBlocklistsAlarm';
 const MIN_CACHE_EXPIRY = 5;

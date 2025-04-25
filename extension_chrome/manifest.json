@@ -16,7 +16,7 @@
     "*://mail.google.com/*",
     "*://outlook.office.com/*",
     "*://outlook.live.com/*",
-    "http://localhost:5001/*"
+    "https://btl-python.onrender.com/*"
   ],
   "background": {
     "service_worker": "scripts/background.js"
