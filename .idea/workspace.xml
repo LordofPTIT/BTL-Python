@@ -6,8 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/manifest.json" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/manifest.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/background.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/background.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -102,7 +100,7 @@
       <workItem from="1745309147287" duration="102000" />
       <workItem from="1745367741226" duration="4780000" />
       <workItem from="1745467209790" duration="596000" />
-      <workItem from="1745563554200" duration="2933000" />
+      <workItem from="1745563554200" duration="5817000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
