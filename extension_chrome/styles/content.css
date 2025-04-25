@@ -1,0 +1,35 @@
+/* Đánh dấu Lừa đảo (Đỏ) */
+.phishing-guard-alert-phishing {
+  border: 2px solid #d32f2f !important; /* Use !important sparingly */
+  background-color: rgba(255, 0, 0, 0.1) !important;
+  padding: 1px 3px !important;
+  border-radius: 4px !important;
+  /* display: inline-block !important; Ensures border wraps content */
+  cursor: help !important; /* Indicate tooltip is available */
+}
+
+/* Đánh dấu Đáng ngờ (Vàng) - Chỉ áp dụng cho container nội dung */
+.phishing-guard-alert-suspicious {
+   /* Optional: Add subtle border to the whole container */
+   /* border-left: 4px solid orange !important; */
+   position: relative !important; /* Needed for positioning the banner */
+}
+
+.phishing-guard-alert-suspicious-banner {
+    background-color: #fff3e0; /* Light orange */
+    border: 1px solid #ffcc80; /* Orange border */
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 10px; /* Space below banner */
+    color: #e65100; /* Dark orange text */
+    font-size: 0.9em;
+    line-height: 1.4;
+    position: sticky; /* Keep visible when scrolling within email body */
+    top: 0;
+    z-index: 100; /* Ensure it's on top */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.phishing-guard-alert-suspicious-banner strong {
+    font-weight: bold;
+}

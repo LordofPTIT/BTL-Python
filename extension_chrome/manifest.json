@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "VN Phishing Guard Pro",
+  "version": "2.1.0",
+  "description": "Phát hiện và báo cáo trang web, email lừa đảo với cơ sở dữ liệu tập trung và đóng góp từ cộng đồng.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "contextMenus",
+    "notifications"
+  ],
+  "host_permissions": [
+    "*://*/*",
+    "*://mail.google.com/*",
+    "*://outlook.office.com/*",
+    "*://outlook.live.com/*",
+    "http://localhost:5001/*"
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://mail.google.com/*",
+        "*://outlook.office.com/*",
+        "*://outlook.live.com/*"
+      ],
+      "js": ["scripts/content.js"],
+      "css": ["styles/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "warning/warning.html",
+        "images/*"
+       ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

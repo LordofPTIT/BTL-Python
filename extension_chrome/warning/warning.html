@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cảnh Báo Lừa Đảo!</title>
+    <style>
+        /* CSS giữ nguyên từ phiên bản trước, thêm style cho nút mới nếu cần */
+        body {
+            font-family: sans-serif;
+            background-color: #ffebee;
+            color: #b71c1c;
+            padding: 40px;
+            text-align: center;
+        }
+        .container {
+            background-color: #ffffff;
+            border: 2px solid #d32f2f;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 600px;
+            margin: 50px auto;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1 { color: #d32f2f; margin-bottom: 20px; }
+        p { font-size: 1.1em; line-height: 1.6; margin-bottom: 15px; }
+        .warning-icon { font-size: 4em; margin-bottom: 20px; }
+        .url-display { font-family: monospace; background-color: #f1f1f1; padding: 10px; border-radius: 4px; word-wrap: break-word; margin-bottom: 5px; color: #333; }
+        .reason-display { font-size: 0.9em; color: #e53935; margin-bottom: 25px; font-style: italic;}
+        .buttons button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 1em; transition: background-color 0.3s ease; }
+        #back-button { background-color: #4CAF50; color: white; }
+        #back-button:hover { background-color: #388E3C; }
+        #proceed-button { background-color: #f44336; color: white; }
+        #proceed-button:hover { background-color: #c62828; }
+         /* Thêm nút báo cáo */
+         #report-false-positive-button { background-color: #ffc107; color: #333; }
+         #report-false-positive-button:hover { background-color: #ffa000; }
+         #report-status { margin-top: 10px; font-weight: bold;}
+         .success { color: green;}
+         .error { color: red;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="warning-icon">⚠️</div>
+        <h1>Cảnh Báo Trang Web Lừa Đảo!</h1>
+        <p>Extension <strong>VN Phishing Guard Pro</strong> đã xác định trang web:</p>
+        <div class="url-display" id="phishing-url">Đang tải URL...</div>
+        <p>Có tên miền (<strong id="phishing-domain">...</strong>) là đáng ngờ.</p>
+        <div class="reason-display" id="phishing-reason">Lý do: Đang tải...</div>
+        <p>Truy cập trang web này có thể tiềm ẩn rủi ro. <strong>Chúng tôi thực sự khuyên bạn không nên tiếp tục.</strong></p>
+        <div class="buttons">
+            <button id="back-button">Quay lại trang trước</button>
+            <button id="proceed-button">Tôi hiểu rủi ro, Tiếp tục truy cập</button>
+             <button id="report-false-positive-button">Đây là trang an toàn (Báo cáo nhầm lẫn)</button>
+        </div>
+         <p id="report-status"></p>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const blockedUrl = decodeURIComponent(urlParams.get('url') || '');
+        const blockedDomain = decodeURIComponent(urlParams.get('domain') || '');
+        const reason = decodeURIComponent(urlParams.get('reason') || 'Nằm trong danh sách chặn.');
+
+        const urlDisplay = document.getElementById('phishing-url');
+        const domainDisplay = document.getElementById('phishing-domain');
+        const reasonDisplay = document.getElementById('phishing-reason');
+        const backButton = document.getElementById('back-button');
+        const proceedButton = document.getElementById('proceed-button');
+         const reportFalsePositiveButton = document.getElementById('report-false-positive-button');
+        const reportStatus = document.getElementById('report-status');
+
+        urlDisplay.textContent = blockedUrl || "Không xác định";
+        domainDisplay.textContent = blockedDomain || "Không xác định";
+        reasonDisplay.textContent = `Lý do: ${reason}`;
+
+        if (!blockedUrl) {
+             proceedButton.disabled = true;
+             reportFalsePositiveButton.disabled = true;
+        }
+
+        proceedButton.onclick = () => { window.location.href = blockedUrl; };
+        backButton.onclick = () => { if (window.history.length > 1) window.history.back(); else window.close(); };
+
+         // Xử lý báo cáo sai
+         reportFalsePositiveButton.onclick = () => {
+             if(blockedDomain && chrome.runtime && chrome.runtime.sendMessage) {
+                 reportStatus.textContent = 'Đang gửi báo cáo...';
+                 reportStatus.className='';
+                 reportFalsePositiveButton.disabled = true;
+                 chrome.runtime.sendMessage(
+                     { action: 'reportItem', type: 'false_positive_domain', value: blockedDomain }, // Backend cần xử lý type này
+                     (response) => {
+                          if (chrome.runtime.lastError) {
+                              console.error("Warning page: Error reporting false positive:", chrome.runtime.lastError);
+                               reportStatus.textContent = 'Lỗi: Không thể gửi báo cáo.';
+                               reportStatus.className = 'error';
+                               reportFalsePositiveButton.disabled = false;
+                          } else if (response && response.success) {
+                               reportStatus.textContent = 'Cảm ơn bạn đã báo cáo!';
+                               reportStatus.className = 'success';
+                               // Có thể giữ nút bị vô hiệu hóa
+                          } else {
+                               reportStatus.textContent = `Lỗi: ${response?.message || 'Không thể gửi báo cáo.'}`;
+                               reportStatus.className = 'error';
+                               reportFalsePositiveButton.disabled = false; // Cho phép thử lại
+                          }
+                     }
+                 );
+             } else {
+                 reportStatus.textContent = 'Không thể báo cáo từ trang này.';
+                  reportStatus.className = 'error';
+             }
+         };
+
+    </script>
+</body>
+</html>

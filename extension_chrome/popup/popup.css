@@ -1,0 +1,129 @@
+body {
+    font-family: sans-serif;
+    width: 300px;
+    padding: 0;
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+}
+
+.header {
+    background-color: #4CAF50; /* Green */
+    color: white;
+    padding: 10px 15px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #388E3C;
+}
+
+.header img {
+    width: 32px;
+    height: 32px;
+    margin-right: 10px;
+}
+
+.header h1 {
+    font-size: 1.1em;
+    margin: 0;
+    font-weight: normal;
+}
+
+.status-section, .action-buttons, .api-status, .footer {
+    padding: 10px 15px;
+}
+
+.status-section h2 {
+    font-size: 0.9em;
+    color: #555;
+    margin-top: 0;
+    margin-bottom: 5px;
+    font-weight: bold;
+    text-transform: uppercase;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+#current-site-status {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+#current-site-status.safe { color: green; }
+#current-site-status.phishing { color: red; }
+#current-site-status.unknown { color: orange; }
+
+
+#current-site-url {
+    font-style: italic;
+    color: #666;
+    font-size: 0.9em;
+    word-wrap: break-word;
+    max-height: 40px; /* Limit height */
+    overflow: hidden;
+}
+
+.action-buttons button {
+    width: 100%;
+    padding: 8px 12px;
+    margin-top: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #f5f5f5;
+    transition: background-color 0.2s ease;
+}
+
+.action-buttons button:hover:not(:disabled) {
+    background-color: #e0e0e0;
+}
+
+.action-buttons button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+#report-site-button {
+    background-color: #ffebcc; /* Light orange */
+    border-color: #ffc107;
+}
+#report-site-button:hover:not(:disabled) {
+     background-color: #ffca28;
+}
+
+
+.api-status {
+    font-size: 0.8em;
+    color: #777;
+    text-align: center;
+    margin-top: 10px;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+}
+
+#api-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+    background-color: gray; /* Default */
+}
+
+#api-indicator.online { background-color: green; }
+#api-indicator.offline { background-color: red; }
+
+.footer {
+    text-align: center;
+    font-size: 0.9em;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+    margin-top: 5px;
+}
+
+.footer a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+.footer a:hover {
+    text-decoration: underline;
+}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="">
+<head>
+    <meta charset="UTF-8">
+    <title>Cài đặt VN Phishing Guard Pro</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <h1>Cài đặt VN Phishing Guard Pro</h1>
+
+    <div class="setting">
+        <label for="api-url">Địa chỉ API Backend:</label>
+        <input type="url" id="api-url" placeholder="https://your-api-endpoint.com/api">
+        <p class="description">URL của máy chủ dùng để kiểm tra và báo cáo. Thay đổi tùy chọn này nếu bạn tự host backend.</p>
+    </div>
+
+     <div class="setting">
+        <label for="cache-expiry">Thời gian làm mới Cache (phút):</label>
+        <input type="number" id="cache-expiry" min="5" max="1440" placeholder="60">
+         <p class="description">Tần suất extension kiểm tra cập nhật danh sách chặn từ API (mặc định 60 phút).</p>
+    </div>
+
+     <button id="save-button">Lưu Cài Đặt</button>
+    <p id="save-status"></p>
+
+    <script src="options.js"></script>
+</body>
+</html>
