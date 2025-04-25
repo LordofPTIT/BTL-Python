@@ -1,62 +1,120 @@
-const apiUrlInput = document.getElementById('api-url');
-const cacheExpiryInput = document.getElementById('cache-expiry');
-const saveButton = document.getElementById('save-button');
-const statusElement = document.getElementById('save-status');
-
-// Load current settings when the page opens
 document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.sync.get(['apiUrl', 'cacheExpiryMinutes'], (settings) => {
-        if (settings.apiUrl) {
-            apiUrlInput.value = settings.apiUrl;
-        }
-         if (settings.cacheExpiryMinutes) {
-            cacheExpiryInput.value = settings.cacheExpiryMinutes;
-        }
-        // Load defaults if nothing is set (optional, could be handled by background)
-        // else {
-             // apiUrlInput.placeholder = 'DEFAULT_API_URL'; // Set placeholder to default
-        // }
-    });
-});
+    const apiUrlInput = document.getElementById('api-url');
+    const cacheExpiryInput = document.getElementById('cache-expiry');
+    const whitelistItemsTextarea = document.getElementById('whitelist-items'); // Added
+    const saveButton = document.getElementById('save-button');
+    const statusElement = document.getElementById('save-status');
 
-// Save settings when the button is clicked
-saveButton.addEventListener('click', () => {
-    const apiUrl = apiUrlInput.value.trim();
-    const cacheExpiry = parseInt(cacheExpiryInput.value, 10);
+    const DEFAULT_CACHE = 60;
+    const MIN_CACHE = 5;
+    const MAX_CACHE = 1440;
 
-    // Basic validation
-    let isValid = true;
-    statusElement.textContent = '';
-    statusElement.className = '';
-
-    if (!apiUrl || !apiUrl.startsWith('http')) {
-         // Consider more robust URL validation
-         statusElement.textContent = 'Lỗi: Vui lòng nhập URL API hợp lệ.';
-         statusElement.className = 'error';
-         isValid = false;
-    }
-     if (isNaN(cacheExpiry) || cacheExpiry < 5 || cacheExpiry > 1440) { // Example range
-          statusElement.textContent = 'Lỗi: Thời gian làm mới cache phải từ 5 đến 1440 phút.';
-         statusElement.className = 'error';
-          isValid = false;
-     }
-
-
-    if (isValid) {
-        chrome.storage.sync.set({
-            apiUrl: apiUrl,
-            cacheExpiryMinutes: cacheExpiry
-        }, () => {
+    // --- Load Settings ---
+    function loadSettings() {
+        // Get settings from chrome.storage.sync
+        chrome.storage.sync.get(['apiUrl', 'cacheExpiryMinutes', 'whitelistItems'], (settings) => {
             if (chrome.runtime.lastError) {
-                 statusElement.textContent = 'Lỗi khi lưu: ' + chrome.runtime.lastError.message;
-                 statusElement.className = 'error';
-            } else {
-                statusElement.textContent = 'Đã lưu cài đặt!';
-                statusElement.className = 'success';
-                setTimeout(() => { statusElement.textContent = ''; statusElement.className = ''; }, 3000); // Clear status after 3s
-                 // Optional: Notify background script about settings change if needed immediately
-                 // chrome.runtime.sendMessage({ action: 'settingsUpdated' });
+                console.error("Options: Error loading settings:", chrome.runtime.lastError);
+                statusElement.textContent = 'Lỗi tải cài đặt.';
+                statusElement.className = 'error';
+                return;
             }
+
+            // API URL: Use saved value or try to get default from background (less reliable) or hardcode
+            // For simplicity, we'll just use the saved value or empty string. Background default is handled there.
+            apiUrlInput.value = settings.apiUrl || '';
+
+            // Cache Expiry
+            cacheExpiryInput.value = settings.cacheExpiryMinutes || DEFAULT_CACHE;
+
+             // Whitelist Items (stored as an array, display as newline-separated string)
+             whitelistItemsTextarea.value = (settings.whitelistItems || []).join('\n');
+
+            console.log('Options: Settings loaded', settings);
         });
     }
+
+    // --- Save Settings ---
+    function saveSettings() {
+        statusElement.textContent = 'Đang lưu...';
+        statusElement.className = '';
+
+        const apiUrl = apiUrlInput.value.trim();
+        let cacheExpiry = parseInt(cacheExpiryInput.value, 10);
+         // Whitelist: split by newline, trim, filter empty lines, keep unique
+         const whitelistItems = [
+             ...new Set(
+                 whitelistItemsTextarea.value
+                     .split('\n')
+                     .map(item => item.trim().toLowerCase()) // Normalize
+                     .filter(Boolean) // Remove empty lines
+             )
+         ];
+
+
+        // --- Validation ---
+        let isValid = true;
+        let errors = [];
+
+        // Validate API URL (must be HTTPS for production)
+        if (!apiUrl) {
+             errors.push('Địa chỉ API không được để trống.');
+             isValid = false;
+        } else if (!apiUrl.startsWith('https://')) {
+             // Allow http only for localhost during development? More complex. Force HTTPS for now.
+             errors.push('Địa chỉ API phải bắt đầu bằng https://.');
+             isValid = false;
+        } else {
+             try { new URL(apiUrl); } catch (_) { errors.push('Địa chỉ API không hợp lệ.'); isValid = false; }
+        }
+
+        // Validate Cache Expiry
+        if (isNaN(cacheExpiry) || cacheExpiry < MIN_CACHE || cacheExpiry > MAX_CACHE) {
+            errors.push(`Tần suất làm mới cache phải từ ${MIN_CACHE} đến ${MAX_CACHE} phút.`);
+            cacheExpiry = DEFAULT_CACHE; // Reset to default if invalid
+            cacheExpiryInput.value = DEFAULT_CACHE;
+            isValid = false; // Consider if invalid cache time should prevent saving other settings
+        }
+
+         // Validate Whitelist items (basic format check if needed)
+         // For now, just save the cleaned list
+
+
+        // --- Save if Valid ---
+        if (isValid) {
+            chrome.storage.sync.set({
+                apiUrl: apiUrl,
+                cacheExpiryMinutes: cacheExpiry,
+                whitelistItems: whitelistItems // Save the cleaned array
+            }, () => {
+                if (chrome.runtime.lastError) {
+                    console.error("Options: Error saving settings:", chrome.runtime.lastError);
+                    statusElement.textContent = 'Lỗi lưu cài đặt: ' + chrome.runtime.lastError.message;
+                    statusElement.className = 'error';
+                } else {
+                    console.log('Options: Settings saved successfully.');
+                    statusElement.textContent = 'Đã lưu cài đặt!';
+                    statusElement.className = 'success';
+                    // Notify background script that settings have changed
+                    chrome.runtime.sendMessage({ action: 'settingsUpdated' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            console.warn("Options: Could not notify background of settings update.", chrome.runtime.lastError.message);
+                        } else {
+                            console.log("Options: Background notified of settings update.");
+                        }
+                    });
+                    setTimeout(() => { statusElement.textContent = ''; statusElement.className = ''; }, 3000);
+                }
+            });
+        } else {
+            statusElement.textContent = 'Lỗi: ' + errors.join(' ');
+            statusElement.className = 'error';
+        }
+    }
+
+    // --- Event Listeners ---
+    saveButton.addEventListener('click', saveSettings);
+
+    // --- Initial Load ---
+    loadSettings();
 });

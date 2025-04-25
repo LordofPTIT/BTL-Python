@@ -13,20 +13,22 @@
 
     <div class="status-section">
         <h2>Trạng thái trang hiện tại</h2>
-        <p id="current-site-status">Đang kiểm tra...</p>
-        <p id="current-site-url">Không có trang nào đang hoạt động.</p>
+        <p id="current-site-status" class="unknown">Đang tải...</p>
+        <p id="current-site-url">...</p>
+        <p id="current-site-reason" class="reason"></p>
     </div>
 
     <div class="action-buttons">
-         <button id="report-site-button" disabled>Báo cáo trang này</button>
-         </div>
+         <button id="report-site-button" disabled>Báo cáo trang này là lừa đảo</button>
+         <button id="whitelist-site-button" disabled>Đây là trang an toàn (Whitelist)</button>
+    </div>
 
     <div class="api-status">
         API Status: <span id="api-indicator"></span> <span id="api-text">Đang kiểm tra...</span>
     </div>
 
     <div class="footer">
-        <a href="../options/options.html" target="_blank">Cài đặt</a>
+        <a href="../options/options.html" target="_blank" id="options-link">Cài đặt</a>
     </div>
 
     <script src="popup.js"></script>

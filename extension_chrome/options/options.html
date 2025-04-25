@@ -1,27 +1,46 @@
 <!DOCTYPE html>
-<html lang="">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <title>Cài đặt VN Phishing Guard Pro</title>
     <link rel="stylesheet" href="options.css">
 </head>
 <body>
-    <h1>Cài đặt VN Phishing Guard Pro</h1>
+    <div class="container">
+        <h1>Cài đặt VN Phishing Guard Pro</h1>
 
-    <div class="setting">
-        <label for="api-url">Địa chỉ API Backend:</label>
-        <input type="url" id="api-url" placeholder="https://your-api-endpoint.com/api">
-        <p class="description">URL của máy chủ dùng để kiểm tra và báo cáo. Thay đổi tùy chọn này nếu bạn tự host backend.</p>
-    </div>
+        <div class="setting-section">
+            <h2>Kết nối API</h2>
+            <div class="setting">
+                <label for="api-url">Địa chỉ API Backend:</label>
+                <input type="url" id="api-url" placeholder="https://your-api-endpoint.com/api" required>
+                <p class="description">URL của máy chủ dùng để kiểm tra và báo cáo (bắt buộc, phải là HTTPS). Ví dụ: https://my-guard-api.onrender.com/api</p>
+            </div>
+            </div>
 
-     <div class="setting">
-        <label for="cache-expiry">Thời gian làm mới Cache (phút):</label>
-        <input type="number" id="cache-expiry" min="5" max="1440" placeholder="60">
-         <p class="description">Tần suất extension kiểm tra cập nhật danh sách chặn từ API (mặc định 60 phút).</p>
-    </div>
+        <div class="setting-section">
+             <h2>Cập nhật & Cache</h2>
+             <div class="setting">
+                <label for="cache-expiry">Tần suất làm mới Cache (phút):</label>
+                <input type="number" id="cache-expiry" min="5" max="1440" placeholder="60" required>
+                <p class="description">Tần suất extension kiểm tra cập nhật danh sách chặn từ API (5 - 1440 phút, mặc định 60).</p>
+            </div>
+        </div>
 
-     <button id="save-button">Lưu Cài Đặt</button>
-    <p id="save-status"></p>
+        <div class="setting-section">
+             <h2>Whitelist (Quản lý thủ công - Chức năng đang phát triển)</h2>
+             <div class="setting">
+                 <label for="whitelist-items">Các tên miền/email luôn cho phép (mỗi dòng một mục):</label>
+                 <textarea id="whitelist-items" rows="5" placeholder="example.com\nmy-safe-email@domain.net"></textarea>
+                 <p class="description">Các mục này sẽ không bị kiểm tra. Chức năng đồng bộ với server đang được phát triển.</p>
+             </div>
+         </div>
+
+         <div class="actions">
+            <button id="save-button">Lưu Cài Đặt</button>
+            <span id="save-status"></span>
+         </div>
+     </div>
 
     <script src="options.js"></script>
 </body>
