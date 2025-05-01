@@ -1,7 +1,7 @@
 'use strict';
 
 // --- Configuration ---
-const DEFAULT_API_BASE_URL = 'https://btl-python.onrender.com/api'; 
+const DEFAULT_API_BASE_URL = 'https://btl-python.onrender.com/api';
 const DEFAULT_CACHE_EXPIRY_MINUTES = 60; // Default cache time in minutes
 const UPDATE_ALARM_NAME = 'updateBlocklistsAlarm';
 const MIN_CACHE_EXPIRY = 5; // Minimum allowed cache expiry

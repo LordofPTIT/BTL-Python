@@ -1,444 +1,670 @@
 import os
-import re # Thư viện regex để kiểm tra email chặt chẽ hơn
-import logging # Thêm logging chi tiết
-import datetime
+import re
+import logging
+import sys
+import time # <<< Import time for timestamps
+from datetime import datetime, timezone # <<< Use timezone-aware datetime
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-import sqlalchemy
-from urllib.parse import urlparse # Để chuẩn hóa domain/URL
+from sqlalchemy import select, exists, func, Index, inspect
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# --- Cấu hình Logging ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- Constants ---
+ALLOWED_ITEM_TYPES = {'domain', 'email'}
+# Basic regex for email validation (consider using a library like email-validator for robustness)
+EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 100 # Default items per page for pagination
 
-# --- Tải biến môi trường ---
-load_dotenv()
-logging.info("Đang tải biến môi trường...")
+# --- Load Environment Variables ---
+# Load .env file only if it exists (useful for local development)
+if os.path.exists(".env"):
+    load_dotenv()
+    print("Loaded environment variables from .env file.")
+else:
+    print(".env file not found, relying on system environment variables.")
 
+# --- Logging Configuration ---
+# Configure logging to output to stdout, suitable for Render/containerized environments
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+# --- Flask App Initialization ---
 app = Flask(__name__)
 
-# --- Cấu hình CORS ---
-# Trong production, nên giới hạn origin cụ thể của extension
-# Ví dụ: CORS(app, origins=["chrome-extension://your_extension_id_here"])
-CORS(app)
-logging.info("CORS được kích hoạt cho mọi nguồn (chỉ dành cho dev).")
+# --- CORS Configuration ---
+# Get allowed origins from environment variable, default to allow all for development
+# For production, set ALLOWED_ORIGINS="chrome-extension://YOUR_EXTENSION_ID"
+allowed_origins = os.getenv('ALLOWED_ORIGINS', '*')
+if allowed_origins != '*':
+    allowed_origins_list = [origin.strip() for origin in allowed_origins.split(',')]
+    logger.info(f"Configuring CORS for specific origins: {allowed_origins_list}")
+    CORS(app, origins=allowed_origins_list, supports_credentials=True)
+else:
+    logger.warning("Configuring CORS to allow all origins (DEVELOPMENT ONLY)")
+    CORS(app) # Allow all origins by default
 
-# --- Cấu hình SQLAlchemy ---
+# --- Database Configuration ---
 db_url = os.getenv('DATABASE_URL')
 if not db_url:
-    logging.error("Biến môi trường DATABASE_URL chưa được thiết lập.")
+    logger.critical("CRITICAL: Biến môi trường DATABASE_URL chưa được thiết lập.")
     raise ValueError("DATABASE_URL environment variable not set.")
 
-# Đảm bảo URL dùng driver psycopg2
+# Ensure URL uses 'postgresql://' prefix required by SQLAlchemy for psycopg2
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
+    logger.info("Updated DATABASE_URL prefix to postgresql://")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+# Disable modification tracking as it's deprecated and consumes extra memory
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True, # Kiểm tra kết nối trước mỗi query
-    "pool_recycle": 300,   # Tái sử dụng connection sau 5 phút
-}
+# Optional: Add configurations for pool size, timeout, etc. if needed
+# app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_size': 10, 'pool_recycle': 280}
 
 db = SQLAlchemy(app)
-logging.info(f"Đã kết nối SQLAlchemy tới database (host: ***).") # Che host/port
 
-# --- Định nghĩa Models (Ánh xạ tới bảng DB) ---
-# (Giữ nguyên models từ phản hồi trước: BlockedDomain, BlockedEmail, UserReport, WhitelistedItem)
-# ... (Thêm lại các class Model ở đây nếu cần thiết hoặc import từ file khác) ...
+# --- Database Models ---
+
 class BlockedDomain(db.Model):
+    """Model for storing blocked domain names."""
     __tablename__ = 'blocked_domains'
-    domain_id = db.Column(db.Integer, primary_key=True)
-    domain_name = db.Column(db.Text, unique=True, nullable=False, index=True)
-    reason = db.Column(db.Text)
-    source = db.Column(db.Text)
-    reported_count = db.Column(db.Integer, default=1)
-    first_seen = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now())
-    last_seen = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now(), onupdate=sqlalchemy.func.now())
-    status = db.Column(db.Text, default='active', index=True) # active, inactive, under_review
+    id = db.Column(db.Integer, primary_key=True)
+    domain_name = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    reason = db.Column(db.String(255), nullable=True)
+    source = db.Column(db.String(100), nullable=True)
+    # Use timezone-aware datetime, default to current UTC time on insert
+    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status = db.Column(db.String(50), default='active', nullable=False, index=True) # e.g., 'active', 'inactive'
+
+    def __repr__(self):
+        return f'<BlockedDomain {self.domain_name}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'domain_name': self.domain_name,
+            'reason': self.reason,
+            'source': self.source,
+            'added_at': self.added_at.isoformat() if self.added_at else None,
+            'status': self.status
+        }
 
 class BlockedEmail(db.Model):
+    """Model for storing blocked email addresses."""
     __tablename__ = 'blocked_emails'
-    email_id = db.Column(db.Integer, primary_key=True)
-    email_address = db.Column(db.Text, unique=True, nullable=False, index=True)
-    reason = db.Column(db.Text)
-    source = db.Column(db.Text)
-    reported_count = db.Column(db.Integer, default=1)
-    first_seen = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now())
-    last_seen = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now(), onupdate=sqlalchemy.func.now())
-    status = db.Column(db.Text, default='active', index=True)
+    id = db.Column(db.Integer, primary_key=True)
+    email_address = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    reason = db.Column(db.String(255), nullable=True)
+    source = db.Column(db.String(100), nullable=True)
+    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status = db.Column(db.String(50), default='active', nullable=False, index=True)
 
-class UserReport(db.Model):
-    __tablename__ = 'user_reports'
-    report_id = db.Column(db.Integer, primary_key=True)
-    report_type = db.Column(db.Text, nullable=False) # 'domain', 'email', 'url', 'text_selection', 'false_positive_domain', 'false_positive_email'
-    value = db.Column(db.Text, nullable=False)
-    context = db.Column(db.Text)
-    reporter_info = db.Column(db.Text)
-    timestamp = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now())
-    status = db.Column(db.Text, default='pending', nullable=False, index=True) # pending, approved, rejected, investigated
+    def __repr__(self):
+        return f'<BlockedEmail {self.email_address}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email_address': self.email_address,
+            'reason': self.reason,
+            'source': self.source,
+            'added_at': self.added_at.isoformat() if self.added_at else None,
+            'status': self.status
+        }
+
+class ReportedItem(db.Model):
+    """Model for items reported by users."""
+    __tablename__ = 'reported_items'
+    id = db.Column(db.Integer, primary_key=True)
+    item_type = db.Column(db.String(50), nullable=False, index=True) # 'domain' or 'email'
+    value = db.Column(db.String(255), nullable=False, index=True) # The domain name or email address
+    reason = db.Column(db.String(500), nullable=True) # Optional reason from user
+    source = db.Column(db.String(100), nullable=True) # e.g., 'chrome_extension_user'
+    reported_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status = db.Column(db.String(50), default='pending', nullable=False, index=True) # 'pending', 'reviewed', 'rejected'
+
+    def __repr__(self):
+        return f'<ReportedItem {self.item_type}:{self.value}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'item_type': self.item_type,
+            'value': self.value,
+            'reason': self.reason,
+            'source': self.source,
+            'reported_at': self.reported_at.isoformat() if self.reported_at else None,
+            'status': self.status
+        }
 
 class WhitelistedItem(db.Model):
-     __tablename__ = 'whitelisted_items'
-     item_id = db.Column(db.Integer, primary_key=True)
-     item_type = db.Column(db.Text, nullable=False, index=True) # 'domain' or 'email'
-     value = db.Column(db.Text, unique=True, nullable=False, index=True)
-     reason = db.Column(db.Text)
-     added_by = db.Column(db.Text) # 'Admin', 'System', 'User:<id>'
-     timestamp = db.Column(db.TIMESTAMP(timezone=True), server_default=sqlalchemy.func.now())
+    """Model for whitelisted domains or emails."""
+    __tablename__ = 'whitelisted_items'
+    id = db.Column(db.Integer, primary_key=True)
+    item_type = db.Column(db.String(50), nullable=False, index=True) # 'domain' or 'email'
+    value = db.Column(db.String(255), nullable=False, index=True) # The domain name or email address
+    reason = db.Column(db.String(255), nullable=True)
+    added_by = db.Column(db.String(100), nullable=True) # Identifier of who added it
+    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Add a unique constraint for item_type and value
+    __table_args__ = (db.UniqueConstraint('item_type', 'value', name='_item_type_value_uc'),)
 
 
-# --- Helper Functions (Chuẩn hóa dữ liệu) ---
-def normalize_domain_be(domain_or_url):
-    if not domain_or_url or not isinstance(domain_or_url, str): return None
+    def __repr__(self):
+        return f'<WhitelistedItem {self.item_type}:{self.value}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'item_type': self.item_type,
+            'value': self.value,
+            'reason': self.reason,
+            'added_by': self.added_by,
+            'added_at': self.added_at.isoformat() if self.added_at else None
+        }
+
+# --- Helper Functions ---
+
+def normalize_domain(domain: str) -> str | None:
+    """
+    Normalizes a domain name to a standard format (lowercase, strip www).
+    Returns None if input is invalid.
+    """
+    if not domain or not isinstance(domain, str):
+        return None
     try:
-        domain_or_url = domain_or_url.strip().lower()
-        # Bỏ schema nếu có
-        if domain_or_url.startswith(('http://', 'https://')):
-             hostname = urlparse(domain_or_url).hostname
-        else:
-             hostname = domain_or_url.split('/')[0] # Lấy phần trước dấu / đầu tiên
-
-        if not hostname: return None
-
-        # Bỏ port nếu có
-        hostname = hostname.split(':')[0]
-
-        # Bỏ www.
+        # Prepend http:// if no scheme exists for urlparse
+        if '://' not in domain:
+            domain = 'http://' + domain
+        parsed = urlparse(domain)
+        # Use netloc which contains the domain/subdomain
+        hostname = parsed.hostname
+        if not hostname:
+            return None
+        # Convert to lowercase
+        hostname = hostname.lower()
+        # Remove leading 'www.' if present
         if hostname.startswith('www.'):
             hostname = hostname[4:]
-
-        # Kiểm tra ký tự hợp lệ cơ bản (a-z, 0-9, -, .)
-        if not re.match(r'^[a-z0-9.-]+$', hostname):
-             logging.warning(f"Domain chứa ký tự không hợp lệ sau chuẩn hóa: {hostname}")
-             return None
-
-        # Tránh domain chỉ có TLD hoặc trống
-        if '.' not in hostname or hostname.startswith('.') or hostname.endswith('.'):
-             logging.warning(f"Domain không hợp lệ sau chuẩn hóa: {hostname}")
-             return None
-
         return hostname
     except Exception as e:
-        logging.error(f"Lỗi khi chuẩn hóa domain/url '{domain_or_url}': {e}")
+        logger.warning(f"Error normalizing domain '{domain}': {e}")
         return None
 
-def normalize_email_be(email):
-    if not email or not isinstance(email, str): return None
-    try:
-        normalized = email.strip().lower()
-        # Regex chặt chẽ hơn để kiểm tra định dạng email
-        email_regex = r'^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$'
-        if not re.fullmatch(email_regex, normalized):
-            logging.warning(f"Địa chỉ email không hợp lệ: {normalized}")
-            return None
-        return normalized
-    except Exception as e:
-        logging.error(f"Lỗi khi chuẩn hóa email '{email}': {e}")
-        return None
+def is_valid_email(email: str) -> bool:
+    """Validates email format using regex."""
+    if not email or not isinstance(email, str):
+        return False
+    # Consider using email-validator library for more robust checks (incl. DNS)
+    return re.match(EMAIL_REGEX, email) is not None
+
+# --- Error Handling ---
+@app.errorhandler(400)
+def bad_request_error(error):
+    logger.warning(f"Bad Request: {error.description}")
+    return jsonify(error=str(error.description)), 400
+
+@app.errorhandler(404)
+def not_found_error(error):
+    logger.info(f"Not Found: {request.path}")
+    return jsonify(error="Resource not found"), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    # Log the actual error cause if available
+    original_exception = getattr(error, "original_exception", error)
+    logger.error(f"Internal Server Error: {original_exception}", exc_info=True)
+    db.session.rollback() # Rollback session in case of DB error during request
+    return jsonify(error="Internal server error"), 500
+
+@app.errorhandler(SQLAlchemyError)
+def handle_db_error(error):
+    logger.error(f"Database Error: {error}", exc_info=True)
+    db.session.rollback()
+    return jsonify(error="Database operation failed"), 500
+
+@app.errorhandler(IntegrityError)
+def handle_integrity_error(error):
+    logger.warning(f"Database Integrity Error: {error.orig}") # Log original DB error
+    db.session.rollback()
+    # Provide a more user-friendly message for common integrity issues like duplicates
+    if "duplicate key value violates unique constraint" in str(error.orig).lower():
+         return jsonify(error="Item already exists or conflicts with existing data."), 409 # Conflict
+    return jsonify(error="Data conflict or constraint violation."), 400
 
 # --- API Endpoints ---
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint."""
+    # Optional: Add database connection check
+    # try:
+    #     db.session.execute(select(1))
+    #     db_status = "ok"
+    # except Exception as e:
+    #     logger.error(f"Health check DB connection failed: {e}")
+    #     db_status = "error"
+    # return jsonify(status="ok", database=db_status), 200
+    return jsonify(status="ok"), 200
+
 
 @app.route('/api/check', methods=['GET'])
 def check_item():
     """
-    Kiểm tra xem một domain hoặc email có nằm trong danh sách chặn không.
-    Ưu tiên kiểm tra whitelist trước.
-    Params:
-        type (str): 'domain' hoặc 'email'
-        value (str): Giá trị cần kiểm tra
+    Checks if a given domain or email is blocked or whitelisted.
+    Query Parameters:
+        type (str): 'domain' or 'email'. Required.
+        value (str): The domain name or email address. Required.
     Returns:
-        JSON: { isPhishing: bool, reason: str }
+        JSON: {'status': 'blocked'|'whitelisted'|'safe', 'details': {}}
     """
+    # --- Start timer (FIXED: using time.time()) ---
+    request_start_time = time.time()
+    logger.info(f"Received /api/check request: {request.args}")
+
     item_type = request.args.get('type')
     value = request.args.get('value')
-    start_time = datetime.time.time()
 
-    if not item_type or not value:
-        logging.warning(f"/check - Thiếu tham số: type={item_type}, value={value}")
-        return jsonify({"error": "Thiếu tham số 'type' hoặc 'value'"}), 400
+    # --- Input Validation ---
+    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
+        logger.warning(f"/api/check: Invalid or missing 'type' parameter: {item_type}")
+        return jsonify(error=f"Invalid or missing 'type' parameter. Must be one of {ALLOWED_ITEM_TYPES}."), 400
+
+    if not value:
+        logger.warning("/api/check: Missing 'value' parameter.")
+        return jsonify(error="Missing 'value' parameter."), 400
 
     normalized_value = None
-    Model = None
-    query_column = None
-
     if item_type == 'domain':
-        normalized_value = normalize_domain_be(value)
-        Model = BlockedDomain
-        query_column = BlockedDomain.domain_name
+        normalized_value = normalize_domain(value)
+        if not normalized_value:
+            logger.warning(f"/api/check: Invalid domain format: {value}")
+            return jsonify(error=f"Invalid domain format: {value}"), 400
     elif item_type == 'email':
-        normalized_value = normalize_email_be(value)
-        Model = BlockedEmail
-        query_column = BlockedEmail.email_address
-    else:
-        logging.warning(f"/check - Loại không hợp lệ: type={item_type}")
-        return jsonify({"error": "Tham số 'type' không hợp lệ. Chỉ chấp nhận 'domain' hoặc 'email'."}), 400
+        if not is_valid_email(value):
+            logger.warning(f"/api/check: Invalid email format: {value}")
+            return jsonify(error=f"Invalid email format: {value}"), 400
+        normalized_value = value.lower() # Store emails lowercase
 
-    if not normalized_value:
-         logging.warning(f"/check - Giá trị không hợp lệ hoặc không chuẩn hóa được: type={item_type}, value='{value}'")
-         # Trả về an toàn nếu input không hợp lệ
-         return jsonify({"isPhishing": False, "reason": "Giá trị cung cấp không hợp lệ"}), 200
-
-    is_phishing = False
-    reason = "An toàn"
-    status_code = 200
+    logger.info(f"/api/check: Processing type='{item_type}', normalized_value='{normalized_value}'")
 
     try:
-        # 1. Kiểm tra Whitelist
-        whitelisted = db.session.query(WhitelistedItem.reason).filter_by(item_type=item_type, value=normalized_value).first()
-        if whitelisted:
-            reason = f"Đã được whitelist: {whitelisted.reason or 'Người dùng/Admin thêm'}"
-            logging.info(f"/check - Whitelisted: {item_type}={normalized_value}, reason={reason}")
-            return jsonify({"isPhishing": False, "reason": reason}), status_code
+        # 1. Check Whitelist first
+        whitelist_stmt = select(WhitelistedItem).where(
+            WhitelistedItem.item_type == item_type,
+            func.lower(WhitelistedItem.value) == normalized_value # Case-insensitive check
+        )
+        whitelisted_entry = db.session.execute(whitelist_stmt).scalar_one_or_none()
 
-        # 2. Kiểm tra Blocklist (chỉ các bản ghi 'active')
-        blocked = db.session.query(Model.reason).filter(query_column == normalized_value, Model.status == 'active').first()
-        if blocked:
-            is_phishing = True
-            reason = blocked.reason or "Nằm trong danh sách chặn"
-            logging.warning(f"/check - BLOCKED: {item_type}={normalized_value}, reason={reason}")
-        # else:
-        #     logging.debug(f"/check - Safe: {item_type}={normalized_value}")
+        if whitelisted_entry:
+            logger.info(f"/api/check: Item '{normalized_value}' is whitelisted.")
+            processing_time = time.time() - request_start_time
+            return jsonify(status="whitelisted", details=whitelisted_entry.to_dict(), processing_time_ms=processing_time * 1000), 200
 
-    except sqlalchemy.exc.SQLAlchemyError as e:
+        # 2. Check Blocklist if not whitelisted
+        blocked_entry = None
+        if item_type == 'domain':
+            block_stmt = select(BlockedDomain).where(
+                BlockedDomain.domain_name == normalized_value,
+                BlockedDomain.status == 'active'
+            )
+            blocked_entry = db.session.execute(block_stmt).scalar_one_or_none()
+        elif item_type == 'email':
+            block_stmt = select(BlockedEmail).where(
+                BlockedEmail.email_address == normalized_value,
+                BlockedEmail.status == 'active'
+            )
+            blocked_entry = db.session.execute(block_stmt).scalar_one_or_none()
+
+        processing_time = time.time() - request_start_time
+        if blocked_entry:
+            logger.info(f"/api/check: Item '{normalized_value}' is blocked.")
+            return jsonify(status="blocked", details=blocked_entry.to_dict(), processing_time_ms=processing_time * 1000), 200
+        else:
+            logger.info(f"/api/check: Item '{normalized_value}' is safe.")
+            return jsonify(status="safe", details={}, processing_time_ms=processing_time * 1000), 200
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during /api/check for '{normalized_value}': {e}", exc_info=True)
         db.session.rollback()
-        logging.error(f"/check - Lỗi DB khi kiểm tra {item_type}='{normalized_value}': {e}", exc_info=True)
-        is_phishing = False # An toàn nếu không kiểm tra được
-        reason = "Lỗi truy vấn cơ sở dữ liệu"
-        status_code = 503 # Service Unavailable (Database error)
+        return jsonify(error="Database query failed"), 500
     except Exception as e:
-        logging.error(f"/check - Lỗi không xác định khi kiểm tra {item_type}='{normalized_value}': {e}", exc_info=True)
-        is_phishing = False
-        reason = "Lỗi máy chủ không xác định"
-        status_code = 500
-
-    processing_time = (datetime.time.time() - start_time) * 1000
-    logging.info(f"/check - Result: {item_type}={normalized_value}, isPhishing={is_phishing}, time={processing_time:.2f}ms")
-    return jsonify({"isPhishing": is_phishing, "reason": reason}), status_code
+        logger.error(f"Unexpected error during /api/check for '{normalized_value}': {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify(error="Internal server error"), 500
 
 
 @app.route('/api/report', methods=['POST'])
 def report_item():
     """
-    Nhận báo cáo từ người dùng và lưu vào database để kiểm duyệt.
-    Body (JSON):
-        type (str): 'domain', 'email', 'url', 'text_selection', 'false_positive_domain', 'false_positive_email'
-        value (str): Giá trị được báo cáo
-        context (str, optional): Ngữ cảnh báo cáo (URL trang, tiêu đề email...)
+    Reports a suspicious domain or email.
+    JSON Body:
+        {
+            "type": "domain" | "email",
+            "value": "...",
+            "reason": "Optional reason from user",
+            "source": "Optional source (e.g., 'chrome_extension')"
+        }
     Returns:
-        JSON: { success: bool, message: str }
+        JSON: {'message': 'Report submitted successfully.', 'report': {...}} or error.
     """
-    global potential_domain
-    start_time = datetime.time.time()
+     # --- Start timer (FIXED: using time.time()) ---
+    request_start_time = time.time()
+    logger.info(f"Received /api/report request: {request.json}")
+
     if not request.is_json:
-        return jsonify({"success": False, "message": "Yêu cầu phải là JSON."}), 415
+        logger.warning("/api/report: Request content type is not JSON.")
+        return jsonify(error="Request must be JSON"), 415
 
     data = request.json
-    report_type = data.get('type')
+    item_type = data.get('type')
     value = data.get('value')
-    context = data.get('context', None)
-    # Lấy thông tin định danh an toàn hơn (ví dụ: hash của IP + User Agent)
-    # Hoặc yêu cầu API key từ extension
-    reporter_info = f"UA:{request.headers.get('User-Agent', 'N/A')}" # Ví dụ đơn giản
+    reason = data.get('reason', None) # Optional
+    source = data.get('source', 'unknown') # Optional
 
-    if not report_type or not value or not isinstance(value, str):
-        logging.warning(f"/report - Thiếu hoặc sai kiểu dữ liệu: type={report_type}, value={value}")
-        return jsonify({"success": False, "message": "Thiếu 'type' hoặc 'value', hoặc 'value' không phải là chuỗi."}), 400
+    # --- Input Validation ---
+    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
+        logger.warning(f"/api/report: Invalid or missing 'type': {item_type}")
+        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
 
-    # Chuẩn hóa giá trị tùy theo loại báo cáo
+    if not value:
+        logger.warning("/api/report: Missing 'value'.")
+        return jsonify(error="Missing 'value' parameter."), 400
+
     normalized_value = None
-    is_false_positive = report_type.startswith('false_positive')
-    blocklist_type = None # Loại để cập nhật blocklist (nếu là báo cáo lừa đảo)
+    if item_type == 'domain':
+        normalized_value = normalize_domain(value)
+        if not normalized_value:
+            logger.warning(f"/api/report: Invalid domain format: {value}")
+            return jsonify(error=f"Invalid domain format: {value}"), 400
+    elif item_type == 'email':
+        if not is_valid_email(value):
+            logger.warning(f"/api/report: Invalid email format: {value}")
+            return jsonify(error=f"Invalid email format: {value}"), 400
+        normalized_value = value.lower()
 
-    if report_type in ['domain', 'false_positive_domain']:
-        normalized_value = normalize_domain_be(value)
-        blocklist_type = 'domain'
-    elif report_type in ['email', 'false_positive_email']:
-        normalized_value = normalize_email_be(value)
-        blocklist_type = 'email'
-    elif report_type == 'url':
-        normalized_value = value.strip() # Giữ nguyên URL nhưng trim()
-        # Có thể thử chuẩn hóa domain từ URL để lưu thêm
-        potential_domain = normalize_domain_be(value)
-        if potential_domain:
-             context = f"{context or ''} (Domain: {potential_domain})" # Thêm domain vào context
-             blocklist_type = 'domain' # Có thể báo cáo domain liên quan
-             # value_to_update_blocklist = potential_domain # Cân nhắc cập nhật blocklist domain
-    elif report_type == 'text_selection':
-        normalized_value = value.strip()[:1000] # Giới hạn độ dài text
-    else:
-        logging.warning(f"/report - Loại báo cáo không được hỗ trợ: {report_type}")
-        return jsonify({"success": False, "message": f"Loại báo cáo '{report_type}' không được hỗ trợ."}), 400
-
-    if not normalized_value:
-         logging.warning(f"/report - Giá trị không hợp lệ sau chuẩn hóa: type={report_type}, original_value='{value}'")
-         return jsonify({"success": False, "message": "Giá trị báo cáo không hợp lệ hoặc không thể chuẩn hóa."}), 400
+    logger.info(f"/api/report: Processing report for type='{item_type}', normalized_value='{normalized_value}'")
 
     try:
-        # 1. Lưu báo cáo vào bảng user_reports
-        new_report = UserReport(
-            report_type=report_type,
+        # Optional: Check if already whitelisted - prevent reporting?
+        whitelist_exists = db.session.query(
+            exists().where(WhitelistedItem.item_type == item_type, func.lower(WhitelistedItem.value) == normalized_value)
+        ).scalar()
+        if whitelist_exists:
+             logger.info(f"/api/report: Item '{normalized_value}' is whitelisted, report ignored.")
+             processing_time = time.time() - request_start_time
+             # Return success but indicate it was ignored due to whitelist
+             return jsonify(message="Item is whitelisted and cannot be reported.", status="ignored_whitelisted", processing_time_ms=processing_time * 1000), 200 # 200 OK seems appropriate here
+
+        # Check if already blocked - maybe update the reason/source or just ignore?
+        # For now, let's just add the report regardless.
+
+        # Check if already reported recently with status 'pending' (to avoid duplicates)
+        report_exists = db.session.query(
+            exists().where(
+                ReportedItem.item_type == item_type,
+                ReportedItem.value == normalized_value,
+                ReportedItem.status == 'pending' # Only check pending reports
+            )
+        ).scalar()
+
+        if report_exists:
+            logger.info(f"/api/report: Item '{normalized_value}' already has a pending report.")
+            processing_time = time.time() - request_start_time
+            return jsonify(message="Report already exists and is pending review.", status="already_reported", processing_time_ms=processing_time * 1000), 200 # 200 OK or 208 Already Reported
+
+        # Create new report
+        new_report = ReportedItem(
+            item_type=item_type,
             value=normalized_value,
-            context=context,
-            reporter_info=reporter_info,
-            status='pending' # Luôn chờ duyệt
+            reason=reason,
+            source=source,
+            status='pending' # Default status
         )
         db.session.add(new_report)
-        logging.info(f"/report - Received: type={report_type}, value='{normalized_value}', status=pending")
-
-        # 2. Xử lý logic tức thì (nếu có) - Ví dụ: tăng count, đánh dấu cần review
-        # Chỉ xử lý nếu không phải báo cáo false positive
-        if blocklist_type and not is_false_positive:
-            Model = BlockedDomain if blocklist_type == 'domain' else BlockedEmail
-            query_column = Model.domain_name if blocklist_type == 'domain' else Model.email_address
-            # Sử dụng giá trị đã chuẩn hóa phù hợp (domain từ URL hoặc domain/email gốc)
-            value_for_blocklist = normalized_value if report_type in ['domain', 'email'] else (potential_domain if report_type == 'url' and potential_domain else None)
-
-            if value_for_blocklist:
-                existing_block = db.session.query(Model).filter(query_column == value_for_blocklist).first()
-                if existing_block:
-                    existing_block.reported_count = (existing_block.reported_count or 0) + 1
-                    existing_block.last_seen = sqlalchemy.func.now()
-                    # Nếu đang inactive, chuyển sang under_review để admin xem xét lại
-                    if existing_block.status == 'inactive':
-                        existing_block.status = 'under_review'
-                    logging.info(f"/report - Updated count/status for existing blocked {blocklist_type}: '{value_for_blocklist}'")
-                else:
-                    # Thêm mới với trạng thái under_review để admin duyệt trước khi active
-                    new_blocked = Model(
-                        **{query_column.key: value_for_blocklist}, # Sử dụng key của column
-                        source='Extension Report',
-                        reason='User Reported - Pending Review',
-                        status='under_review' # Chờ admin duyệt
-                    )
-                    db.session.add(new_blocked)
-                    logging.info(f"/report - Added new {blocklist_type} for review: '{value_for_blocklist}'")
-
-        # Commit tất cả thay đổi
         db.session.commit()
-        processing_time = (datetime.time.time() - start_time) * 1000
-        logging.info(f"/report - Saved successfully, time={processing_time:.2f}ms")
-        return jsonify({"success": True, "message": "Đã nhận báo cáo, cảm ơn sự đóng góp của bạn!"})
+        logger.info(f"Successfully created report ID {new_report.id} for '{normalized_value}'.")
+        processing_time = time.time() - request_start_time
+        return jsonify(
+            message="Report submitted successfully.",
+            report=new_report.to_dict(),
+            processing_time_ms=processing_time * 1000
+            ), 201 # 201 Created
 
-    except sqlalchemy.exc.SQLAlchemyError as e:
+    except IntegrityError as e:
+         # This might happen if there's a race condition despite the check above
+         logger.warning(f"Database integrity error during /api/report for '{normalized_value}': {e.orig}")
+         db.session.rollback()
+         return jsonify(error="Report conflict, possibly already exists."), 409
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during /api/report for '{normalized_value}': {e}", exc_info=True)
         db.session.rollback()
-        logging.error(f"/report - Lỗi DB khi lưu báo cáo {report_type}='{normalized_value}': {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Lỗi cơ sở dữ liệu khi lưu báo cáo."}), 503
+        return jsonify(error="Database operation failed"), 500
     except Exception as e:
+        logger.error(f"Unexpected error during /api/report for '{normalized_value}': {e}", exc_info=True)
         db.session.rollback()
-        logging.error(f"/report - Lỗi không xác định khi lưu báo cáo {report_type}='{normalized_value}': {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Lỗi máy chủ không xác định khi lưu báo cáo."}), 500
+        return jsonify(error="Internal server error"), 500
+
 
 @app.route('/api/blocklist', methods=['GET'])
 def get_blocklist():
     """
-    Cung cấp danh sách các domain/email đang bị chặn (active).
-    Hỗ trợ tham số 'since' để lấy cập nhật delta (tùy chọn nâng cao).
-    Params:
-        type (str): 'domain' hoặc 'email'
-        since (int, optional): Timestamp (epoch seconds) hoặc version ID để lấy thay đổi.
+    Retrieves the blocklist (domains or emails) added since a specific time.
+    Query Parameters:
+        type (str): 'domain' or 'email'. Required.
+        since (float/int): Timestamp (seconds since epoch). Defaults to 0 (all items). Optional.
+        page (int): Page number for pagination. Defaults to 1. Optional.
+        per_page (int): Items per page. Defaults to 100. Optional.
     Returns:
-        JSON: { version: int, request_since: int, domains/emails: list[str] }
-              Hoặc 304 Not Modified nếu không có thay đổi.
+        JSON: {'items': [...], 'total': N, 'page': N, 'per_page': N}
     """
-    start_time = datetime.time.time()
+     # --- Start timer (FIXED: using time.time()) ---
+    request_start_time = time.time()
+    logger.info(f"Received /api/blocklist request: {request.args}")
+
     item_type = request.args.get('type')
+    since_str = request.args.get('since', '0')
+    page = request.args.get('page', DEFAULT_PAGE, type=int)
+    per_page = request.args.get('per_page', DEFAULT_PER_PAGE, type=int)
+
+    # Limit max per_page
+    per_page = min(per_page, 1000) # Set a reasonable upper limit
+
+    # --- Input Validation ---
+    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
+        logger.warning(f"/api/blocklist: Invalid or missing 'type': {item_type}")
+        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
+
     try:
-        # Lấy version client gửi lên (nếu có)
-        since_version = int(request.args.get('since', 0))
+        since_timestamp = float(since_str)
+        # Convert timestamp to timezone-aware datetime object
+        since_dt = datetime.fromtimestamp(since_timestamp, timezone.utc)
     except ValueError:
-        since_version = 0
+        logger.warning(f"/api/blocklist: Invalid 'since' timestamp format: {since_str}")
+        return jsonify(error="Invalid 'since' timestamp format. Must be seconds since epoch."), 400
 
-    Model = None
-    list_key = None
-    query_column = None
-
-    if item_type == 'domain':
-        Model = BlockedDomain
-        list_key = 'domains'
-        query_column = BlockedDomain.domain_name
-    elif item_type == 'email':
-        Model = BlockedEmail
-        list_key = 'emails'
-        query_column = BlockedEmail.email_address
-    else:
-        logging.warning(f"/blocklist - Loại không hợp lệ: {item_type}")
-        return jsonify({"error": "Tham số 'type' không hợp lệ"}), 400
+    logger.info(f"/api/blocklist: Processing type='{item_type}', since='{since_dt}', page={page}, per_page={per_page}")
 
     try:
-        # Lấy version mới nhất (ví dụ: timestamp của lần cập nhật cuối cùng)
-        # Cách đơn giản: Dùng timestamp hiện tại. Nâng cao: Quản lý version trong DB.
-        latest_update_time = db.session.query(sqlalchemy.func.max(Model.last_seen)).filter(Model.status == 'active').scalar()
-        current_version = int(latest_update_time.timestamp()) if latest_update_time else int(datetime.time.time())
+        query = None
+        if item_type == 'domain':
+            query = select(BlockedDomain).where(
+                BlockedDomain.added_at > since_dt,
+                BlockedDomain.status == 'active' # Only return active entries
+            ).order_by(BlockedDomain.added_at.asc()) # Order for consistent pagination
+        elif item_type == 'email':
+             query = select(BlockedEmail).where(
+                BlockedEmail.added_at > since_dt,
+                BlockedEmail.status == 'active'
+            ).order_by(BlockedEmail.added_at.asc())
 
-        # --- Logic kiểm tra version (đơn giản) ---
-        # Nếu client đã có version mới nhất, trả về 304
-        # Lưu ý: Cần cơ chế versioning chính xác hơn trong production
-        if since_version != 0 and since_version >= current_version:
-             logging.info(f"/blocklist - No changes ({item_type}) since version {since_version}. Returning 304.")
-             # Trả về 304 Not Modified (Flask không có cách trực tiếp, trả về response rỗng với status 304)
-             return '', 304 # Client sẽ không cập nhật cache
+        # Apply pagination
+        paginated_query = query.limit(per_page).offset((page - 1) * per_page)
+        items = db.session.execute(paginated_query).scalars().all()
 
-        # --- Lấy danh sách active items ---
-        # Trong production thực tế với lượng dữ liệu lớn, nên lấy delta dựa trên `since_version`
-        # Ví dụ: .filter(Model.last_seen > datetime.fromtimestamp(since_version, timezone.utc))
-        active_items_query = db.session.query(query_column).filter(Model.status == 'active')
-        active_items = active_items_query.all()
-        data_list = [item[0] for item in active_items] # Chuyển tuple thành list string
+        # Get total count for pagination info (can be slow on large tables without 'since')
+        # If performance is critical, consider alternative ways or omit total count for 'since=0'
+        total_count_query = select(func.count()).select_from(query.order_by(None).subquery()) # Count from the filtered query
+        total_items = db.session.execute(total_count_query).scalar_one()
 
-        response_data = {
-            "version": current_version,
-            "request_since": since_version, # Echo lại để client biết server xử lý version nào
-            list_key: data_list
-        }
-        processing_time = (datetime.time.time() - start_time) * 1000
-        logging.info(f"/blocklist - Returned {len(data_list)} active {item_type}s, version={current_version}, time={processing_time:.2f}ms")
-        return jsonify(response_data)
 
-    except sqlalchemy.exc.SQLAlchemyError as e:
-        logging.error(f"/blocklist - Lỗi DB khi lấy {item_type}: {e}", exc_info=True)
-        return jsonify({"error": f"Lỗi cơ sở dữ liệu khi lấy danh sách {item_type}"}), 503
+        result_items = [item.to_dict() for item in items]
+        processing_time = time.time() - request_start_time
+        logger.info(f"/api/blocklist: Found {len(result_items)} items (Total: {total_items}) for type='{item_type}' since {since_dt}.")
+
+        return jsonify(
+            items=result_items,
+            total=total_items,
+            page=page,
+            per_page=per_page,
+            processing_time_ms=processing_time * 1000
+        ), 200
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during /api/blocklist for type='{item_type}': {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify(error="Database query failed"), 500
     except Exception as e:
-        logging.error(f"/blocklist - Lỗi không xác định khi lấy {item_type}: {e}", exc_info=True)
-        return jsonify({"error": f"Lỗi máy chủ không xác định khi lấy danh sách {item_type}"}), 500
+        logger.error(f"Unexpected error during /api/blocklist for type='{item_type}': {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify(error="Internal server error"), 500
 
-# --- Endpoint kiểm tra sức khỏe API ---
-@app.route('/health', methods=['GET'])
-def health_check():
+@app.route('/api/whitelist', methods=['GET'])
+def get_whitelist():
+    """
+    Retrieves the whitelist (domains or emails) added since a specific time.
+    Query Parameters:
+        type (str): 'domain' or 'email'. Required.
+        since (float/int): Timestamp (seconds since epoch). Defaults to 0 (all items). Optional.
+        page (int): Page number for pagination. Defaults to 1. Optional.
+        per_page (int): Items per page. Defaults to 100. Optional.
+    Returns:
+        JSON: {'items': [...], 'total': N, 'page': N, 'per_page': N}
+    """
+    request_start_time = time.time()
+    logger.info(f"Received /api/whitelist request: {request.args}")
+
+    item_type = request.args.get('type')
+    since_str = request.args.get('since', '0')
+    page = request.args.get('page', DEFAULT_PAGE, type=int)
+    per_page = request.args.get('per_page', DEFAULT_PER_PAGE, type=int)
+
+    per_page = min(per_page, 1000) # Limit per_page
+
+    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
+        logger.warning(f"/api/whitelist: Invalid or missing 'type': {item_type}")
+        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
+
     try:
-        # Kiểm tra kết nối DB cơ bản
-        db.session.execute(sqlalchemy.text('SELECT 1'))
-        logging.debug("/health - OK")
-        return jsonify({"status": "healthy", "database": "connected"}), 200
+        since_timestamp = float(since_str)
+        since_dt = datetime.fromtimestamp(since_timestamp, timezone.utc)
+    except ValueError:
+         logger.warning(f"/api/whitelist: Invalid 'since' timestamp format: {since_str}")
+         return jsonify(error="Invalid 'since' timestamp format. Must be seconds since epoch."), 400
+
+    logger.info(f"/api/whitelist: Processing type='{item_type}', since='{since_dt}', page={page}, per_page={per_page}")
+
+    try:
+        # Query whitelisted items based on type and time added
+        query = select(WhitelistedItem).where(
+            WhitelistedItem.item_type == item_type,
+            WhitelistedItem.added_at > since_dt
+        ).order_by(WhitelistedItem.added_at.asc())
+
+        # Apply pagination
+        paginated_query = query.limit(per_page).offset((page - 1) * per_page)
+        items = db.session.execute(paginated_query).scalars().all()
+
+        # Get total count
+        total_count_query = select(func.count()).select_from(query.order_by(None).subquery())
+        total_items = db.session.execute(total_count_query).scalar_one()
+
+        result_items = [item.to_dict() for item in items]
+        processing_time = time.time() - request_start_time
+        logger.info(f"/api/whitelist: Found {len(result_items)} items (Total: {total_items}) for type='{item_type}' since {since_dt}.")
+
+        return jsonify(
+            items=result_items,
+            total=total_items,
+            page=page,
+            per_page=per_page,
+            processing_time_ms=processing_time * 1000
+        ), 200
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during /api/whitelist for type='{item_type}': {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify(error="Database query failed"), 500
     except Exception as e:
-        logging.error(f"/health - Database connection failed: {e}")
-        return jsonify({"status": "unhealthy", "database": "disconnected", "error": str(e)}), 503
+        logger.error(f"Unexpected error during /api/whitelist for type='{item_type}': {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify(error="Internal server error"), 500
 
 
-# --- Khởi tạo DB nếu chạy lần đầu (chỉ dùng cho dev) ---
-# Nên dùng Alembic hoặc Flask-Migrate để quản lý migration trong production
+# --- Database Initialization ---
 def initialize_database():
-    with app.app_context():
-        logging.info("Kiểm tra và khởi tạo Schema Database nếu cần...")
-        try:
-            db.create_all()
-            logging.info("Database schema đã được kiểm tra/tạo.")
-            # Thêm dữ liệu mẫu nếu cần cho dev
-            # seed_database()
-        except Exception as e:
-            logging.error(f"Lỗi khi khởi tạo database: {e}", exc_info=True)
+    """Checks if tables exist and creates them if they don't."""
+    logger.info("Initializing database...")
+    try:
+        # Reflect existing tables
+        inspector = inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+        logger.info(f"Existing tables: {existing_tables}")
 
+        # Check if our models' tables exist
+        required_tables = [
+            BlockedDomain.__tablename__,
+            BlockedEmail.__tablename__,
+            ReportedItem.__tablename__,
+            WhitelistedItem.__tablename__
+        ]
+
+        missing_tables = [tbl for tbl in required_tables if tbl not in existing_tables]
+
+        if missing_tables:
+            logger.info(f"Creating missing tables: {missing_tables}")
+            # Create only the missing tables (or use db.create_all() if sure)
+            # Using metadata associated with the models ensures only defined tables are created
+            db.metadata.create_all(bind=db.engine, tables=[
+                db.metadata.tables[tbl] for tbl in missing_tables
+            ])
+            logger.info("Database tables created successfully.")
+            # Optional: Seed database after creation if needed
+            # seed_database()
+        else:
+            logger.info("All required database tables already exist.")
+
+    except SQLAlchemyError as e:
+        logger.critical(f"CRITICAL: Database initialization failed: {e}", exc_info=True)
+        # Depending on the error, you might want to exit or retry
+    except Exception as e:
+        logger.critical(f"CRITICAL: Unexpected error during database initialization: {e}", exc_info=True)
+
+
+# --- Seed Database (Optional, for initial data) ---
 # def seed_database():
-#     # Chỉ chạy nếu DB trống
-#     if not BlockedDomain.query.first() and not BlockedEmail.query.first():
-#         logging.info("Seeding database with initial data...")
-#         try:
+#     """Adds initial sample data to the database if empty."""
+#     logger.info("Attempting to seed database...")
+#     try:
+#         # Check if seeding is needed (e.g., count records)
+#         domain_count = db.session.query(func.count(BlockedDomain.id)).scalar()
+#         email_count = db.session.query(func.count(BlockedEmail.id)).scalar()
+
+#         if domain_count == 0 and email_count == 0:
+#             logger.info("Seeding database with initial data...")
 #             # Thêm domain mẫu
 #             domains = [
-#                 BlockedDomain(domain_name='example-phishing-1.com', reason='Known Phishing Source A', source='SeedData', status='active'),
-#                 BlockedDomain(domain_name='bank-update-required.net', reason='Reported Malicious', source='SeedData', status='active'),
-#                 BlockedDomain(domain_name='inactive-phish.org', reason='Old source', source='SeedData', status='inactive'),
+#                 BlockedDomain(domain_name='malicious-example.com', reason='Known Phishing Site', source='SeedData', status='active'),
+#                 BlockedDomain(domain_name='fake-bank-login.net', reason='Phishing', source='SeedData', status='active'),
 #             ]
 #             db.session.add_all(domains)
 
@@ -452,21 +678,40 @@ def initialize_database():
 #              # Thêm whitelist mẫu
 #             whitelists = [
 #                  WhitelistedItem(item_type='domain', value='my-internal-tool.corp', reason='Internal Tool', added_by='SeedData'),
+#                  WhitelistedItem(item_type='email', value='safe.sender@trusted.com', reason='Trusted Partner', added_by='SeedData'),
 #              ]
 #             db.session.add_all(whitelists)
 
 #             db.session.commit()
-#             logging.info("Database seeded successfully.")
-#         except exc.SQLAlchemyError as e:
-#              db.session.rollback()
-#              logging.error(f"Error seeding database: {e}")
-#         except Exception as e:
-#              db.session.rollback()
-#              logging.error(f"Unexpected error seeding database: {e}")
+#             logger.info("Database seeded successfully.")
+#         else:
+#             logger.info("Database already contains data, skipping seed.")
 
+#     except IntegrityError as e:
+#          logger.warning(f"Integrity error during seeding (likely duplicate data): {e.orig}")
+#          db.session.rollback()
+#     except SQLAlchemyError as e:
+#          db.session.rollback()
+#          logger.error(f"Error seeding database: {e}", exc_info=True)
+#     except Exception as e:
+#          db.session.rollback()
+#          logger.error(f"Unexpected error seeding database: {e}", exc_info=True)
+
+
+# --- Main Execution Guard ---
 if __name__ == '__main__':
-    initialize_database() # Chạy kiểm tra/tạo DB khi start server dev
-    # Chạy Flask development server (KHÔNG DÙNG CHO PRODUCTION)
-    # Trong production, dùng: gunicorn --bind 0.0.0.0:5001 app:app -w 4 --log-level info
-    logging.info("Khởi chạy Flask development server trên cổng 5001...")
-    app.run(host='0.0.0.0', port=5001, debug=False) # Đặt debug=False ngay cả trong dev để tránh lỗi reload SQLAlchemy
+    # Database initialization should ideally be handled by migrations (e.g., Flask-Migrate)
+    # or a separate setup script, not typically run every time the dev server starts.
+    # However, for simple cases or first run, this can be useful.
+    with app.app_context(): # Create application context for DB operations
+        initialize_database()
+
+    # Get port from environment variable, default to 5001 for local dev if not set
+    port = int(os.environ.get("PORT", 5001))
+
+    # Run Flask development server (DO NOT USE IN PRODUCTION)
+    # Use a production-grade WSGI server like Gunicorn or uWSGI instead.
+    # Example Render Start Command: gunicorn --bind 0.0.0.0:$PORT --workers 3 --log-level info app:app
+    logger.info(f"Starting Flask development server on http://0.0.0.0:{port}")
+    # debug=True enables auto-reloading and debugger, disable in production
+    app.run(host='0.0.0.0', port=port, debug=False) # Set debug=False for production-like behavior
