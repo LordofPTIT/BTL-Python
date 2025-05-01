@@ -28,7 +28,7 @@
         #report-false-positive-button { background-color: var(--warning-bg); color: var(--warning-color); border-color: #eac54f; }
         #report-false-positive-button:hover { background-color: #f4e086; }
         #report-false-positive-button:disabled { opacity: 0.6; cursor: not-allowed; }
-        #report-status { margin-top: 15px; font-weight: 500; height: 1.2em; } /* Reserve space */
+        #report-status { margin-top: 15px; font-weight: 500; height: 1.2em; }
         .success { color: var(--success-color); }
         .error { color: var(--danger-color); }
     </style>
@@ -56,13 +56,13 @@
     </div>
 
     <script>
-        // Lấy tham số từ URL trang cảnh báo
+
         const urlParams = new URLSearchParams(window.location.search);
         const blockedUrl = decodeURIComponent(urlParams.get('url') || '');
         const blockedDomain = decodeURIComponent(urlParams.get('domain') || '');
         const reason = decodeURIComponent(urlParams.get('reason') || 'Nằm trong danh sách chặn.');
 
-        // Ánh xạ element
+
         const urlDisplay = document.getElementById('phishing-url');
         const domainDisplay = document.getElementById('phishing-domain');
         const reasonDisplay = document.getElementById('phishing-reason');
@@ -71,27 +71,27 @@
         const reportFalsePositiveButton = document.getElementById('report-false-positive-button');
         const reportStatus = document.getElementById('report-status');
 
-        // Hiển thị thông tin
+
         urlDisplay.textContent = blockedUrl || "Không xác định";
         domainDisplay.textContent = blockedDomain || "Không xác định";
         reasonDisplay.textContent = reason;
 
-        // Vô hiệu hóa nút nếu không có URL/Domain
+
         if (!blockedUrl || !blockedDomain) {
              proceedButton.disabled = true;
              reportFalsePositiveButton.disabled = true;
         }
 
-        // Xử lý nút bấm
+
         proceedButton.onclick = () => { if(blockedUrl) window.location.href = blockedUrl; };
         backButton.onclick = () => { if (window.history.length > 1) window.history.back(); else window.close(); };
 
-        // Xử lý báo cáo sai
+
          reportFalsePositiveButton.onclick = () => {
              if(blockedDomain && chrome.runtime && chrome.runtime.sendMessage) {
                  reportStatus.textContent = 'Đang gửi báo cáo...'; reportStatus.className='';
-                 reportFalsePositiveButton.disabled = true; // Disable trong khi gửi
-                 proceedButton.disabled = true; // Disable cả nút tiếp tục
+                 reportFalsePositiveButton.disabled = true;
+                 proceedButton.disabled = true;
 
                  chrome.runtime.sendMessage(
                      { action: 'reportItem', type: 'false_positive_domain', value: blockedDomain, context: `False positive report from warning page for URL: ${blockedUrl}` },
@@ -99,13 +99,13 @@
                           if (chrome.runtime.lastError) {
                               console.error("Warning page: Error reporting false positive:", chrome.runtime.lastError);
                                reportStatus.textContent = 'Lỗi: Không thể gửi báo cáo.'; reportStatus.className = 'error';
-                               reportFalsePositiveButton.disabled = false; proceedButton.disabled = false; // Re-enable
+                               reportFalsePositiveButton.disabled = false; proceedButton.disabled = false;
                           } else if (response && response.success) {
                                reportStatus.textContent = 'Cảm ơn! Báo cáo của bạn đã được gửi để xem xét.'; reportStatus.className = 'success';
-                               // Giữ nút bị vô hiệu hóa sau khi gửi thành công
+
                           } else {
                                reportStatus.textContent = `Lỗi: ${response?.message || 'Không thể gửi báo cáo.'}`; reportStatus.className = 'error';
-                               reportFalsePositiveButton.disabled = false; proceedButton.disabled = false; // Re-enable
+                               reportFalsePositiveButton.disabled = false; proceedButton.disabled = false;
                           }
                      }
                  );
