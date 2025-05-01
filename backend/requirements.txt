@@ -1,10 +1,10 @@
-Flask>=2.0
-Flask-Cors>=3.0
-psycopg2-binary>=2.9
-python-dotenv>=0.20
-Flask-SQLAlchemy>=3.0
-gunicorn>=20.1
+Flask
+Flask-Cors
+psycopg2-binary
+python-dotenv
+Flask-SQLAlchemy
+gunicorn
 SQLAlchemy
 psycopg2-binary
 python-dotenv
-email-validator 
+email-validator
