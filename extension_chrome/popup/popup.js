@@ -17,10 +17,10 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.runtime.openOptionsPage();
     });
 
-    // --- Update UI Function ---
+
     function updateUi() {
         urlElement.textContent = currentUrl ? (currentUrl.length > 60 ? currentUrl.substring(0, 57) + '...' : currentUrl) : 'Không có URL hợp lệ.';
-        reasonElement.textContent = ''; // Clear reason initially
+        reasonElement.textContent = '';
 
         if (!currentUrl || !currentDomain) {
             statusElement.textContent = 'Không áp dụng';
@@ -43,29 +43,29 @@ document.addEventListener('DOMContentLoaded', () => {
             reportButton.textContent = 'Đã bị chặn/báo cáo';
             reportButton.disabled = true;
             whitelistButton.textContent = 'Whitelist trang này (Tin tưởng)';
-            whitelistButton.disabled = false; // Allow whitelisting a blocked site
-        } else { // isPhishing is false
+            whitelistButton.disabled = false;
+        } else {
              statusElement.textContent = 'Trang có vẻ an toàn';
              statusElement.className = 'safe';
              reasonElement.textContent = `Lý do kiểm tra: ${currentStatus.reason || 'Không nằm trong danh sách chặn'}`;
              if (currentStatus.reason && currentStatus.reason.toLowerCase().includes('whitelist')) {
-                 // If already whitelisted, disable whitelist button
+
                  whitelistButton.textContent = 'Đã trong Whitelist';
                  whitelistButton.disabled = true;
-                 reportButton.disabled = true; // Maybe disable report too? Or allow reporting whitelisted?
+                 reportButton.disabled = true;
              } else {
                  whitelistButton.textContent = 'Whitelist trang này';
-                 whitelistButton.disabled = false; // Allow whitelisting a safe site
+                 whitelistButton.disabled = false;
              }
              reportButton.textContent = 'Báo cáo trang này là lừa đảo';
              reportButton.disabled = false;
         }
     }
 
-    // --- Get Current Tab Info and Check Status ---
+
     function refreshCurrentTabStatus() {
-         currentStatus = { isPhishing: null, reason: null }; // Reset status
-         updateUi(); // Show "Checking..."
+         currentStatus = { isPhishing: null, reason: null };
+         updateUi();
 
          chrome.runtime.sendMessage({ action: 'getCurrentTabInfo' }, (response) => {
             if (chrome.runtime.lastError) {
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response && response.url && response.domain) {
                 currentUrl = response.url;
                 currentDomain = response.domain;
-                // Ask background to check this domain
+
                 chrome.runtime.sendMessage({ action: 'checkDomain', value: currentDomain }, (checkResponse) => {
                     if (chrome.runtime.lastError) {
                         console.error("Popup: Error checkDomain response:", chrome.runtime.lastError.message);
@@ -89,15 +89,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateUi();
                 });
             } else {
-                currentUrl = response?.url || null; // Keep URL if domain invalid
+                currentUrl = response?.url || null;
                 currentDomain = null;
-                updateUi(); // Show "Not applicable" or URL without status
+                updateUi();
             }
         });
     }
 
 
-    // --- Button Listeners ---
+
     reportButton.addEventListener('click', () => {
         if (currentDomain) {
             reportButton.disabled = true; whitelistButton.disabled = true;
@@ -106,10 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (chrome.runtime.lastError || !response?.success) {
                      console.error("Popup: Report failed:", chrome.runtime.lastError?.message || "API Error");
                      reportButton.textContent = 'Lỗi! Thử lại?';
-                     reportButton.disabled = false; whitelistButton.disabled = false; // Re-enable on error
+                     reportButton.disabled = false; whitelistButton.disabled = false;
                 } else {
                      reportButton.textContent = 'Đã báo cáo!';
-                     // Optionally refresh status which might now show blocked if cache updated
+
                      setTimeout(refreshCurrentTabStatus, 500);
                 }
             });
@@ -120,22 +120,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentDomain) {
             whitelistButton.disabled = true; reportButton.disabled = true;
             whitelistButton.textContent = 'Đang xử lý...';
-            // Send whitelist request (needs backend implementation)
+
             chrome.runtime.sendMessage({ action: 'whitelistItem', type: 'domain', value: currentDomain }, (response) => {
                  if (chrome.runtime.lastError || !response?.success) {
                       console.error("Popup: Whitelist failed:", chrome.runtime.lastError?.message || response?.message);
                       whitelistButton.textContent = 'Lỗi! Thử lại?';
-                      whitelistButton.disabled = false; reportButton.disabled = currentStatus.isPhishing === true; // Re-enable based on original state
+                      whitelistButton.disabled = false; reportButton.disabled = currentStatus.isPhishing === true;
                  } else {
                       whitelistButton.textContent = 'Đã Whitelist!';
-                      // Refresh status to reflect whitelist
+
                        setTimeout(refreshCurrentTabStatus, 500);
                  }
             });
         }
     });
 
-    // --- Check API Status ---
+
     chrome.runtime.sendMessage({ action: 'getApiStatus' }, (response) => {
       if (chrome.runtime.lastError) {
            apiIndicator.className = 'offline'; apiText.textContent = 'Lỗi kiểm tra API'; return;
@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // --- Initial Load ---
+
     refreshCurrentTabStatus();
 
-}); // End DOMContentLoaded
+});

@@ -56,13 +56,13 @@ h2 {
 .setting input[type="number"],
 .setting input[type="password"],
 .setting textarea {
-    width: calc(100% - 24px); /* Account for padding */
+    width: calc(100% - 24px);
     padding: 10px 12px;
     border: 1px solid #d0d7de;
     border-radius: 6px;
     font-size: 1em;
     line-height: 1.4;
-    background-color: #f6f8fa; /* Input background */
+    background-color: #f6f8fa;
     transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
 }
 .setting textarea {
@@ -73,7 +73,7 @@ h2 {
 
 .setting input:focus,
 .setting textarea:focus {
-     border-color: #0969da; /* GitHub blue focus */
+     border-color: #0969da;
      outline: none;
      box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.3);
      background-color: #ffffff;
@@ -96,7 +96,7 @@ h2 {
 
 button#save-button {
     padding: 10px 20px;
-    background-color: #2da44e; /* GitHub green */
+    background-color: #2da44e;
     color: white;
     border: 1px solid rgba(27, 31, 36, 0.15);
     border-radius: 6px;

@@ -1,20 +1,20 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    width: 320px; /* Increased width slightly */
+    width: 320px;
     padding: 0;
     margin: 0;
-    font-size: 13px; /* Slightly smaller base font */
-    color: #24292f; /* GitHub dark gray */
-    background-color: #f6f8fa; /* GitHub light gray */
+    font-size: 13px;
+    color: #24292f;
+    background-color: #f6f8fa;
 }
 
 .header {
-    background-color: #2da44e; /* GitHub green */
+    background-color: #2da44e;
     color: white;
     padding: 12px 15px;
     display: flex;
     align-items: center;
-    border-bottom: 1px solid #1b1f2426; /* Subtle border */
+    border-bottom: 1px solid #1b1f2426;
 }
 
 .header img {
@@ -26,7 +26,7 @@ body {
 .header h1 {
     font-size: 1.1em;
     margin: 0;
-    font-weight: 600; /* Bolder */
+    font-weight: 600;
 }
 
 .status-section, .action-buttons, .api-status, .footer {
@@ -34,12 +34,12 @@ body {
 }
 
 .status-section {
-     border-bottom: 1px solid #d0d7de; /* Separator */
+     border-bottom: 1px solid #d0d7de;
 }
 
 .status-section h2 {
     font-size: 0.85em;
-    color: #57606a; /* GitHub secondary text */
+    color: #57606a;
     margin-top: 0;
     margin-bottom: 8px;
     font-weight: 600;
@@ -54,8 +54,8 @@ body {
     font-size: 1.05em;
 }
 #current-site-status.safe { color: #2da44e; }
-#current-site-status.phishing { color: #cf222e; } /* GitHub red */
-#current-site-status.unknown { color: #9a6700; } /* GitHub orange */
+#current-site-status.phishing { color: #cf222e; }
+#current-site-status.unknown { color: #9a6700; }
 #current-site-status.checking { color: #57606a; }
 
 
@@ -85,18 +85,18 @@ body {
     width: 100%;
     padding: 8px 12px;
     margin-top: 8px;
-    border: 1px solid #1b1f2426; /* GitHub button border */
+    border: 1px solid #1b1f2426;
     border-radius: 6px;
     cursor: pointer;
     font-weight: 500;
     font-size: 0.95em;
     transition: background-color 0.2s ease, border-color 0.2s ease;
-    background-color: #f6f8fa; /* Default button bg */
+    background-color: #f6f8fa;
     color: #24292f;
 }
 
 .action-buttons button:hover:not(:disabled) {
-    background-color: #f3f4f6; /* Slightly darker hover */
+    background-color: #f3f4f6;
     border-color: #1b1f2426;
 }
 
@@ -106,7 +106,7 @@ body {
 }
 
 #report-site-button {
-    background-color: #ffecb3; /* Light yellow/orange for warning */
+    background-color: #ffecb3;
     border-color: #ffca28;
     color: #6d4c41;
 }
@@ -122,7 +122,7 @@ body {
 
 
 #whitelist-site-button {
-     background-color: #e8f5e9; /* Light green for safe action */
+     background-color: #e8f5e9;
      border-color: #a5d6a7;
      color: #2e7d32;
 }
@@ -152,7 +152,7 @@ body {
     height: 8px;
     border-radius: 50%;
     margin-right: 4px;
-    background-color: gray; /* Default: checking */
+    background-color: gray;
     vertical-align: middle;
 }
 
@@ -168,7 +168,7 @@ body {
 }
 
 .footer a {
-    color: #0969da; /* GitHub link blue */
+    color: #0969da;
     text-decoration: none;
 }
 

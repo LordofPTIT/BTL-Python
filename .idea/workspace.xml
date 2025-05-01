@@ -5,7 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
-      <change beforePath="$PROJECT_DIR$/backend/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/options/options.css" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/options/options.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/options/options.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/options/options.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/popup/popup.css" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/popup/popup.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/popup/popup.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/popup/popup.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/background.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/background.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/content.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/content.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -120,7 +126,7 @@
       <workItem from="1745740233119" duration="7769000" />
       <workItem from="1746009645513" duration="4699000" />
       <workItem from="1746019333308" duration="118000" />
-      <workItem from="1746019464212" duration="19294000" />
+      <workItem from="1746019464212" duration="21578000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
