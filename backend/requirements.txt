@@ -4,3 +4,7 @@ psycopg2-binary>=2.9
 python-dotenv>=0.20
 Flask-SQLAlchemy>=3.0
 gunicorn>=20.1
+SQLAlchemy
+psycopg2-binary
+python-dotenv
+email-validator 
