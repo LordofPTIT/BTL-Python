@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentUrl = null;
     let currentDomain = null;
-    let currentStatus = { isPhishing: null, reason: null }; // Store status
+    let currentStatus = { isPhishing: null, reason: null };
 
     optionsLink.addEventListener('click', (e) => {
         e.preventDefault();

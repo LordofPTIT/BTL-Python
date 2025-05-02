@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 ALLOWED_ITEM_TYPES = {'domain', 'email'}
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 DEFAULT_PAGE = 1
-DEFAULT_PER_PAGE = 100 
+DEFAULT_PER_PAGE = 100
 
 if os.path.exists(".env"):
     load_dotenv()
