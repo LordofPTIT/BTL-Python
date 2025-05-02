@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 ALLOWED_ITEM_TYPES = {'domain', 'email'}
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 DEFAULT_PAGE = 1
-DEFAULT_PER_PAGE = 100 # Default items per page for pagination
+DEFAULT_PER_PAGE = 100 
 
 if os.path.exists(".env"):
     load_dotenv()
@@ -271,7 +271,7 @@ def check_item():
         if not is_valid_email(value):
             logger.warning(f"/api/check: Invalid email format: {value}")
             return jsonify(error=f"Invalid email format: {value}"), 400
-        normalized_value = value.lower() # Store emails lowercase
+        normalized_value = value.lower()
 
     logger.info(f"/api/check: Processing type='{item_type}', normalized_value='{normalized_value}'")
 
