@@ -5,9 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
+      <change afterPath="$PROJECT_DIR$/backend/import_domains.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/popup/popup.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/popup/popup.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -70,6 +69,7 @@
     "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "DefaultHtmlFileTemplate": "HTML File",
     "Python.app.executor": "Run",
+    "Python.import_domains.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
@@ -86,7 +86,10 @@
     "vue.rearranger.settings.migration": "true"
   },
   "keyToStringList": {
-    "ChangesTree.GroupingKeys": []
+    "ChangesTree.GroupingKeys": [],
+    "DatabaseDriversLRU": [
+      "postgresql"
+    ]
   }
 }]]></component>
   <component name="SharedIndexes">
@@ -122,7 +125,7 @@
       <workItem from="1745740233119" duration="7769000" />
       <workItem from="1746009645513" duration="4699000" />
       <workItem from="1746019333308" duration="118000" />
-      <workItem from="1746019464212" duration="28775000" />
+      <workItem from="1746019464212" duration="40495000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
@@ -159,6 +162,7 @@
     <option name="LAST_COMMIT_MESSAGE" value="16/04/2025" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/BTL_Python$app.coverage" NAME="app Coverage Results" MODIFIED="1746113302966" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/backend" />
+    <SUITE FILE_PATH="coverage/BTL_Python$import_domains.coverage" NAME="import_domains Coverage Results" MODIFIED="1746246353597" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/backend" />
+    <SUITE FILE_PATH="coverage/BTL_Python$app.coverage" NAME="app Coverage Results" MODIFIED="1746181403406" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/backend" />
   </component>
 </project>
