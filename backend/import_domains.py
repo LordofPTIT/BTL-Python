@@ -4,13 +4,13 @@ import logging
 import time
 from typing import Set, Generator
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select, exists
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select, exists # Bỏ create_engine, sessionmaker vì dùng db từ app
 from sqlalchemy.exc import SQLAlchemyError
 
-
+# --- Import các thành phần cần thiết từ app.py ---
 try:
-    from app import db, BlockedDomain, normalize_domain, app as flask_app
+    # Quan trọng: Import initialize_database từ app.py
+    from app import db, BlockedDomain, normalize_domain, app as flask_app, initialize_database
 except ImportError as e:
     print(f"Lỗi import từ app.py: {e}")
     print("Hãy đảm bảo script này được chạy từ thư mục chứa app.py hoặc cấu hình PYTHONPATH.")
@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
+# --- Đường dẫn đến các file URL ---
 URLS_TXT_PATH = 'urls.txt'
 URLS_ABP_PATH = 'urls-ABP.txt'
 
@@ -37,7 +37,7 @@ def process_urls_txt(filepath: str) -> Generator[str, None, None]:
         with open(filepath, 'r', encoding='utf-8') as f:
             for line in f:
                 domain = line.strip()
-                if domain and not domain.startswith('#'):
+                if domain and not domain.startswith('#'): # Bỏ qua dòng trống và comment
                     normalized = normalize_domain(domain)
                     if normalized:
                         yield normalized
@@ -55,15 +55,10 @@ def process_urls_abp(filepath: str) -> Generator[str, None, None]:
         with open(filepath, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-
                 if line.startswith('||') and line.endswith('^'):
-
                     domain_part = line[2:-1]
-
                     domain_part = domain_part.split('$')[0]
-
                     domain_part = domain_part.split(':')[0]
-
                     if '/' in domain_part or '*' in domain_part:
                         continue
                     normalized = normalize_domain(domain_part)
@@ -82,10 +77,10 @@ def import_domains_to_db(domains: Set[str], source_tag: str):
     inserted_count = 0
     skipped_count = 0
     error_count = 0
-    batch_size = 1000  # Commit sau mỗi batch_size bản ghi
+    batch_size = 1000
     domains_to_insert = []
 
-
+    # Sử dụng app context để làm việc với DB ngoài request Flask
     with flask_app.app_context():
         logger.info(f"Bắt đầu import {len(domains)} domain từ nguồn '{source_tag}'...")
         start_time = time.time()
@@ -93,42 +88,37 @@ def import_domains_to_db(domains: Set[str], source_tag: str):
         processed_count = 0
         for domain in domains:
             processed_count += 1
-            if processed_count % 10000 == 0: # Log tiến trình
+            if processed_count % 10000 == 0:
                  logger.info(f"Đã xử lý {processed_count}/{len(domains)} domain...")
 
             try:
-                # Kiểm tra xem domain đã tồn tại chưa (cách check từng cái)
                 exists_stmt = select(exists().where(BlockedDomain.domain_name == domain))
                 domain_exists = db.session.execute(exists_stmt).scalar()
 
-                # Hoặc kiểm tra với set đã lấy trước đó (nhanh hơn nếu set không quá lớn)
-                # domain_exists = domain in existing_domains
-
                 if not domain_exists:
-                    # logger.debug(f"Chuẩn bị thêm domain: {domain}")
                     new_domain = BlockedDomain(
                         domain_name=domain,
-                        source=source_tag, # Gán nguồn import
-                        status='active',   # Mặc định là active
-                        reason='Bulk imported' # Lý do chung
+                        source=source_tag,
+                        status='active',
+                        reason='Bulk imported'
                     )
                     domains_to_insert.append(new_domain)
-                    # existing_domains.add(domain) # Thêm vào set check nếu dùng cách check bằng set
 
                     if len(domains_to_insert) >= batch_size:
                         logger.info(f"Đang commit batch {batch_size} domain...")
                         db.session.add_all(domains_to_insert)
                         db.session.commit()
                         inserted_count += len(domains_to_insert)
-                        domains_to_insert = [] # Reset batch
+                        domains_to_insert = []
                 else:
-                    # logger.debug(f"Bỏ qua domain đã tồn tại: {domain}")
                     skipped_count += 1
 
             except SQLAlchemyError as e:
                 logger.error(f"Lỗi DB khi xử lý domain '{domain}': {e}")
-                db.session.rollback() # Quan trọng: rollback khi có lỗi
+                db.session.rollback()
                 error_count += 1
+                # Thêm một khoảng nghỉ nhỏ nếu có lỗi liên quan đến kết nối hoặc tài nguyên
+                # time.sleep(0.1)
             except Exception as e:
                  logger.error(f"Lỗi không mong muốn khi xử lý domain '{domain}': {e}")
                  db.session.rollback()
@@ -144,7 +134,7 @@ def import_domains_to_db(domains: Set[str], source_tag: str):
             except SQLAlchemyError as e:
                 logger.error(f"Lỗi DB khi commit batch cuối: {e}")
                 db.session.rollback()
-                error_count += len(domains_to_insert) # Coi như lỗi nếu không commit được
+                error_count += len(domains_to_insert)
             except Exception as e:
                  logger.error(f"Lỗi không mong muốn khi commit batch cuối: {e}")
                  db.session.rollback()
@@ -161,8 +151,15 @@ def main():
     """Hàm chính điều phối việc đọc file và import vào DB."""
     logger.info("Bắt đầu script import domain...")
 
+    # !!! QUAN TRỌNG: Gọi initialize_database() để đảm bảo bảng tồn tại !!!
+    logger.info("Đang kiểm tra và khởi tạo cấu trúc database (nếu cần)...")
+    # Cần chạy trong app context để tạo bảng
+    with flask_app.app_context():
+        initialize_database()
+    logger.info("Kiểm tra/khởi tạo database hoàn tất.")
+
     # --- Đọc và xử lý các file ---
-    all_domains: Set[str] = set() # Dùng set để tự loại bỏ trùng lặp từ các file
+    all_domains: Set[str] = set()
 
     logger.info(f"Đang xử lý file: {URLS_TXT_PATH}")
     for domain in process_urls_txt(URLS_TXT_PATH):
@@ -179,15 +176,13 @@ def main():
         return
 
     # --- Import vào database ---
-    # Có thể gọi import_domains_to_db riêng cho từng file nếu muốn tag nguồn khác nhau
-    # Hoặc gộp chung như hiện tại với một tag nguồn chung
     import_domains_to_db(all_domains, source_tag='BulkImportScript')
 
     logger.info("Script import domain đã hoàn tất.")
 
 
 if __name__ == "__main__":
-    # Đảm bảo biến môi trường DATABASE_URL đã được thiết lập (trong .env hoặc hệ thống)
+    # Đảm bảo biến môi trường DATABASE_URL đã được thiết lập
     if not os.getenv('DATABASE_URL'):
          logger.critical("Lỗi: Biến môi trường DATABASE_URL chưa được thiết lập.")
          logger.critical("Hãy tạo file .env hoặc thiết lập biến môi trường hệ thống.")
