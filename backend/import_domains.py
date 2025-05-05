@@ -7,21 +7,21 @@ from dotenv import load_dotenv
 from sqlalchemy import select, exists
 from sqlalchemy.exc import SQLAlchemyError
 
-# --- Import các thành phần cần thiết từ app.py ---
+
 try:
     from app import db, BlockedDomain, normalize_domain, app as flask_app, initialize_database
 except ImportError as e:
     print(f"Lỗi import từ app.py: {e}")
     sys.exit(1)
 
-# --- Cấu hình logging ---
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-# --- Đường dẫn đến các file URL ---
+
 URLS_TXT_PATH = 'urls.txt'
 URLS_ABP_PATH = 'urls-ABP.txt'
-CLDBLACKLIST_PATH = 'CLDBllacklist.txt'  # File blacklist mới (AdGuard format)
+CLDBLACKLIST_PATH = 'CLDBllacklist.txt'
 
 def process_urls_txt(filepath: str) -> Generator[str, None, None]:
     """Đọc file urls.txt và trả về các domain đã chuẩn hóa."""
