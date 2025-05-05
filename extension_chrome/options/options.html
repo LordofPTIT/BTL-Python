@@ -1,46 +1,32 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="">
 <head>
-    <meta charset="UTF-8">
     <title>Cài đặt VN Phishing Guard Pro</title>
     <link rel="stylesheet" href="options.css">
+    <meta charset="UTF-8">
 </head>
 <body>
-    <div class="container">
-        <h1>Cài đặt VN Phishing Guard Pro</h1>
+    <h1>Cài đặt VN Phishing Guard Pro (Local)</h1>
 
-        <div class="setting-section">
-            <h2>Kết nối API</h2>
-            <div class="setting">
-                <label for="api-url">Địa chỉ API Backend:</label>
-                <input type="url" id="api-url" placeholder="https://your-api-endpoint.com/api" required>
-                <p class="description">URL của máy chủ dùng để kiểm tra và báo cáo (bắt buộc, phải là HTTPS). Ví dụ: https://my-guard-api.onrender.com/api</p>
-            </div>
-            </div>
+    <div class="settings-section">
+        <h2>Cấu hình API Backend</h2>
+        <p>Đây là địa chỉ máy chủ cục bộ nơi tiện ích sẽ lấy dữ liệu danh sách chặn/trắng.</p>
+        <label for="api-url">URL Cơ sở API:</label>
+        <input type="url" id="api-url" placeholder="Ví dụ: http://127.0.0.1:5001/api" required>
+        <button id="test-connection">Kiểm tra Kết nối</button>
+        <p id="test-status" class="status"></p>
+    </div>
 
-        <div class="setting-section">
-             <h2>Cập nhật & Cache</h2>
-             <div class="setting">
-                <label for="cache-expiry">Tần suất làm mới Cache (phút):</label>
-                <input type="number" id="cache-expiry" min="5" max="1440" placeholder="60" required>
-                <p class="description">Tần suất extension kiểm tra cập nhật danh sách chặn từ API (5 - 1440 phút, mặc định 60).</p>
-            </div>
-        </div>
+    <div class="settings-section">
+        <h2>Cập nhật Bộ đệm (Cache)</h2>
+        <p>Tần suất tiện ích nên kiểm tra các bản cập nhật từ API backend (tính bằng phút).</p>
+        <label for="update-interval">Khoảng thời gian cập nhật (phút):</label>
+        <input type="number" id="update-interval" min="5" max="1440" placeholder="5-1440" required>
+         <small>(Mặc định: 60, Tối thiểu: 5, Tối đa: 1440)</small>
+    </div>
 
-        <div class="setting-section">
-             <h2>Whitelist (Quản lý thủ công - Chức năng đang phát triển)</h2>
-             <div class="setting">
-                 <label for="whitelist-items">Các tên miền/email luôn cho phép (mỗi dòng một mục):</label>
-                 <textarea id="whitelist-items" rows="5" placeholder="example.com\nmy-safe-email@domain.net"></textarea>
-                 <p class="description">Các mục này sẽ không bị kiểm tra. Chức năng đồng bộ với server đang được phát triển.</p>
-             </div>
-         </div>
-
-         <div class="actions">
-            <button id="save-button">Lưu Cài Đặt</button>
-            <span id="save-status"></span>
-         </div>
-     </div>
+    <button id="save-button">Lưu Cài đặt</button>
+    <p id="status-message" class="status"></p>
 
     <script src="options.js"></script>
 </body>

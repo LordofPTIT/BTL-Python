@@ -1,115 +1,124 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const apiUrlInput = document.getElementById('api-url');
-    const cacheExpiryInput = document.getElementById('cache-expiry');
-    const whitelistItemsTextarea = document.getElementById('whitelist-items');
-    const saveButton = document.getElementById('save-button');
-    const statusElement = document.getElementById('save-status');
+const apiUrlInput = document.getElementById('api-url');
+const updateIntervalInput = document.getElementById('update-interval');
+const saveButton = document.getElementById('save-button');
+const statusMessage = document.getElementById('status-message');
+const testConnectionButton = document.getElementById('test-connection');
+const testStatus = document.getElementById('test-status');
 
-    const DEFAULT_CACHE = 60;
-    const MIN_CACHE = 5;
-    const MAX_CACHE = 1440;
+const CACHE_KEYS = {
+    API_BASE_URL: 'apiBaseUrl',
+    CACHE_UPDATE_INTERVAL: 'cacheUpdateIntervalMinutes'
+};
+// CHANGE: Reflect the new local default
+const DEFAULT_API_URL = 'http://127.0.0.1:5001/api';
+const DEFAULT_INTERVAL = 60;
 
+// Load saved settings on page load
+async function loadSettings() {
+    try {
+        const data = await chrome.storage.sync.get([CACHE_KEYS.API_BASE_URL, CACHE_KEYS.CACHE_UPDATE_INTERVAL]);
+        apiUrlInput.value = data[CACHE_KEYS.API_BASE_URL] || DEFAULT_API_URL;
+        updateIntervalInput.value = data[CACHE_KEYS.CACHE_UPDATE_INTERVAL] || DEFAULT_INTERVAL;
+        console.log('Options: Settings loaded.', data);
+    } catch (error) {
+        console.error('Options: Error loading settings:', error);
+        statusMessage.textContent = 'Lỗi tải cài đặt.';
+        statusMessage.className = 'status error';
+        // Set defaults if loading fails
+        apiUrlInput.value = DEFAULT_API_URL;
+        updateIntervalInput.value = DEFAULT_INTERVAL;
+    }
+}
 
-    function loadSettings() {
+// Save settings
+async function saveSettings() {
+    const apiUrl = apiUrlInput.value.trim().replace(/\/$/, ''); // Remove trailing slash
+    const interval = parseInt(updateIntervalInput.value, 10);
 
-        chrome.storage.sync.get(['apiUrl', 'cacheExpiryMinutes', 'whitelistItems'], (settings) => {
-            if (chrome.runtime.lastError) {
-                console.error("Options: Error loading settings:", chrome.runtime.lastError);
-                statusElement.textContent = 'Lỗi tải cài đặt.';
-                statusElement.className = 'error';
-                return;
-            }
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+         statusMessage.textContent = 'Lỗi: Vui lòng nhập URL API hợp lệ (bắt đầu bằng http hoặc https).';
+         statusMessage.className = 'status error';
+         return;
+    }
 
+    if (isNaN(interval) || interval < 5 || interval > 1440) {
+        statusMessage.textContent = 'Lỗi: Khoảng thời gian cập nhật phải từ 5 đến 1440 phút.';
+        statusMessage.className = 'status error';
+        return;
+    }
 
-            apiUrlInput.value = settings.apiUrl || '';
-
-
-            cacheExpiryInput.value = settings.cacheExpiryMinutes || DEFAULT_CACHE;
-
-
-             whitelistItemsTextarea.value = (settings.whitelistItems || []).join('\n');
-
-            console.log('Options: Settings loaded', settings);
+    try {
+        await chrome.storage.sync.set({
+            [CACHE_KEYS.API_BASE_URL]: apiUrl,
+            [CACHE_KEYS.CACHE_UPDATE_INTERVAL]: interval
         });
+        statusMessage.textContent = 'Cài đặt đã được lưu thành công!';
+        statusMessage.className = 'status success';
+        console.log('Options: Settings saved.', { apiUrl, interval });
+
+        // Notify background script about the changes
+        chrome.runtime.sendMessage({ action: 'settingsUpdated' }, (response) => {
+             if (chrome.runtime.lastError) {
+                  console.warn("Options: Could not send settings update message to background.", chrome.runtime.lastError.message);
+             } else {
+                  console.log("Options: Sent settings update notification to background.");
+             }
+        });
+
+
+        setTimeout(() => { statusMessage.textContent = ''; statusMessage.className = 'status'; }, 3000);
+    } catch (error) {
+        console.error('Options: Error saving settings:', error);
+        statusMessage.textContent = `Lỗi lưu cài đặt: ${error.message}`;
+        statusMessage.className = 'status error';
+    }
+}
+
+// Test API Connection
+async function testApiConnection() {
+    const apiUrl = apiUrlInput.value.trim().replace(/\/$/, '');
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+        testStatus.textContent = 'Lỗi: URL API không hợp lệ.';
+        testStatus.className = 'status error';
+        return;
     }
 
+    testStatus.textContent = 'Đang kiểm tra kết nối...';
+    testStatus.className = 'status info';
+    testConnectionButton.disabled = true;
 
-    function saveSettings() {
-        statusElement.textContent = 'Đang lưu...';
-        statusElement.className = '';
+    // Use the /api/status endpoint which should be defined in app.py
+    const statusUrl = `${apiUrl}/status`;
 
-        const apiUrl = apiUrlInput.value.trim();
-        let cacheExpiry = parseInt(cacheExpiryInput.value, 10);
+    try {
+        const response = await fetch(statusUrl, { method: 'GET', mode: 'cors' }); // mode: 'cors' is important
 
-         const whitelistItems = [
-             ...new Set(
-                 whitelistItemsTextarea.value
-                     .split('\n')
-                     .map(item => item.trim().toLowerCase())
-                     .filter(Boolean)
-             )
-         ];
+        if (!response.ok) {
+            throw new Error(`Lỗi HTTP ${response.status}: ${response.statusText}`);
+        }
 
+        const data = await response.json();
 
-
-        let isValid = true;
-        let errors = [];
-
-
-        if (!apiUrl) {
-             errors.push('Địa chỉ API không được để trống.');
-             isValid = false;
-        } else if (!apiUrl.startsWith('https://')) {
-
-             errors.push('Địa chỉ API phải bắt đầu bằng https://.');
-             isValid = false;
+        if (data && data.status === 'ok') {
+            testStatus.textContent = `Kết nối thành công! (DB: ${data.database_status || 'unknown'})`;
+            testStatus.className = 'status success';
         } else {
-             try { new URL(apiUrl); } catch (_) { errors.push('Địa chỉ API không hợp lệ.'); isValid = false; }
+             testStatus.textContent = `Kết nối thành công nhưng phản hồi API không mong đợi.`;
+             testStatus.className = 'status warning';
+             console.warn("Options: API Status response unexpected:", data);
         }
 
-
-        if (isNaN(cacheExpiry) || cacheExpiry < MIN_CACHE || cacheExpiry > MAX_CACHE) {
-            errors.push(`Tần suất làm mới cache phải từ ${MIN_CACHE} đến ${MAX_CACHE} phút.`);
-            cacheExpiry = DEFAULT_CACHE;
-            cacheExpiryInput.value = DEFAULT_CACHE;
-            isValid = false;
-        }
-
-
-        if (isValid) {
-            chrome.storage.sync.set({
-                apiUrl: apiUrl,
-                cacheExpiryMinutes: cacheExpiry,
-                whitelistItems: whitelistItems
-            }, () => {
-                if (chrome.runtime.lastError) {
-                    console.error("Options: Error saving settings:", chrome.runtime.lastError);
-                    statusElement.textContent = 'Lỗi lưu cài đặt: ' + chrome.runtime.lastError.message;
-                    statusElement.className = 'error';
-                } else {
-                    console.log('Options: Settings saved successfully.');
-                    statusElement.textContent = 'Đã lưu cài đặt!';
-                    statusElement.className = 'success';
-                    // Notify background script that settings have changed
-                    chrome.runtime.sendMessage({ action: 'settingsUpdated' }, (response) => {
-                        if (chrome.runtime.lastError) {
-                            console.warn("Options: Could not notify background of settings update.", chrome.runtime.lastError.message);
-                        } else {
-                            console.log("Options: Background notified of settings update.");
-                        }
-                    });
-                    setTimeout(() => { statusElement.textContent = ''; statusElement.className = ''; }, 3000);
-                }
-            });
-        } else {
-            statusElement.textContent = 'Lỗi: ' + errors.join(' ');
-            statusElement.className = 'error';
-        }
+    } catch (error) {
+        console.error('Options: API connection test failed:', error);
+        testStatus.textContent = `Kết nối thất bại: ${error.message}. Máy chủ backend có đang chạy không?`;
+        testStatus.className = 'status error';
+    } finally {
+        testConnectionButton.disabled = false;
     }
+}
 
 
-    saveButton.addEventListener('click', saveSettings);
-
-
-    loadSettings();
-});
+// Event Listeners
+document.addEventListener('DOMContentLoaded', loadSettings);
+saveButton.addEventListener('click', saveSettings);
+testConnectionButton.addEventListener('click', testApiConnection);

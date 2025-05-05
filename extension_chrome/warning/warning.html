@@ -2,217 +2,138 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cảnh báo Bảo mật</title>
+    <title>Cảnh báo Bảo mật!</title>
     <style>
-        body {
-            font-family: sans-serif;
-            background-color: #f8d7da; /* Light red background */
-            color: #721c24; /* Dark red text */
-            padding: 20px;
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            box-sizing: border-box;
-        }
-        .container {
-            background-color: #fff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            max-width: 600px;
-            border: 2px solid #dc3545; /* Red border */
-        }
-        h1 {
-            color: #dc3545; /* Red heading */
-            margin-bottom: 15px;
-        }
-        .icon {
-            font-size: 48px;
-            color: #dc3545;
-            margin-bottom: 20px;
-        }
-        p {
-            font-size: 1.1em;
-            margin-bottom: 10px;
-            line-height: 1.6;
-        }
-        .url-display {
-            font-family: monospace;
-            background-color: #f0f0f0;
-            padding: 8px;
-            border-radius: 4px;
-            word-break: break-all; /* Wrap long URLs */
-            margin-bottom: 25px;
-            border: 1px solid #ccc;
-            color: #333;
-        }
-        .buttons {
-            margin-top: 20px;
-            display: flex;
-            justify-content: center;
-            gap: 15px; /* Space between buttons */
-            flex-wrap: wrap; /* Wrap buttons on smaller screens */
-        }
-        button {
-            padding: 12px 25px;
-            font-size: 1em;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-            min-width: 120px;
-        }
-        #back-button {
-            background-color: #6c757d; /* Gray */
-            color: white;
-        }
-        #back-button:hover {
-            background-color: #5a6268;
-        }
-        #proceed-button {
-            background-color: #ffc107; /* Yellow/Orange for caution */
-            color: #333;
-        }
-         #proceed-button:hover {
-             background-color: #e0a800;
-         }
-         #report-button {
-             background-color: #17a2b8; /* Info blue */
-             color: white;
-         }
-         #report-button:hover {
-             background-color: #138496;
-         }
-         .report-status {
-             margin-top: 15px;
-             font-weight: bold;
-             min-height: 1.2em; /* Reserve space */
-         }
-         .report-status.success {
-             color: #28a745; /* Green */
-         }
-         .report-status.error {
-             color: #dc3545; /* Red */
-         }
-
+        body { font-family: sans-serif; background-color: #f8d7da; color: #721c24; padding: 20px; line-height: 1.6; }
+        .container { max-width: 600px; margin: 50px auto; background-color: #fff; border: 1px solid #f5c6cb; border-radius: 8px; padding: 30px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); text-align: center; }
+        h1 { color: #dc3545; margin-bottom: 15px; }
+        p { margin-bottom: 20px; }
+        .url-blocked { word-break: break-all; font-family: monospace; background-color: #f1f1f1; padding: 5px; border-radius: 3px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 20px;}
+        .buttons button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .back-button { background-color: #007bff; color: white; }
+        .proceed-button { background-color: #ffc107; color: #333; }
+        .report-button { background-color: #6c757d; color: white; font-size: 12px; padding: 5px 10px;}
+        .report-status { margin-top: 15px; font-size: 13px; min-height: 1em; }
+        .report-status.success { color: #28a745; }
+        .report-status.error { color: #dc3545; }
+        .report-status.info { color: #17a2b8; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="icon">⚠️</div> <h1>Cảnh báo Trang Web Không An Toàn</h1>
-        <p>Tiện ích phát hiện trang web bạn đang cố truy cập có thể không an toàn hoặc nằm trong danh sách chặn:</p>
-        <div class="url-display" id="blocked-url">Đang tải URL...</div>
-        <p>Truy cập trang web này có thể tiềm ẩn rủi ro lừa đảo, phần mềm độc hại hoặc nội dung không phù hợp khác.</p>
-        <p><strong>Chúng tôi khuyên bạn nên quay lại.</strong></p>
+        <h1>⚠️ Trang web không an toàn!</h1>
+        <p>Tiện ích VN Phishing Guard Pro đã chặn quyền truy cập vào trang này vì nó được xác định là trang web lừa đảo hoặc không an toàn:</p>
+        <p><strong class="url-blocked" id="blocked-url-display">Đang tải...</strong></p>
+        <p>Truy cập trang này có thể gây rủi ro cho thông tin cá nhân hoặc thiết bị của bạn.</p>
 
         <div class="buttons">
-            <button id="back-button">Quay lại</button>
-            <button id="proceed-button" title="Truy cập trang web này bất chấp cảnh báo (Không khuyến nghị)">Tiếp tục truy cập</button>
-            <button id="report-button" title="Báo cáo nếu bạn cho rằng trang web này an toàn">Báo cáo nhầm lẫn</button>
+            <button id="go-back" class="back-button">Quay lại trang an toàn</button>
+            <button id="proceed-anyway" class="proceed-button" disabled>Cho phép tạm thời & Tiếp tục</button>
+            <p><small>Cảnh báo: Chỉ tiếp tục nếu bạn chắc chắn về tính hợp pháp của trang web này.</small></p>
         </div>
-         <div id="report-status" class="report-status"></div>
+        <hr style="margin: 20px 0;">
+         <div>
+             <p><small>Bạn cho rằng đây là một lỗi? Báo cáo trang web này là an toàn.</small></p>
+             <button id="report-false-positive" class="report-button" disabled>Báo cáo là an toàn (False Positive)</button>
+             <p id="report-status" class="report-status"></p>
+         </div>
     </div>
 
     <script>
-        const blockedUrlElement = document.getElementById('blocked-url');
-        const backButton = document.getElementById('back-button');
-        const proceedButton = document.getElementById('proceed-button');
-        const reportButton = document.getElementById('report-button');
-         const reportStatus = document.getElementById('report-status');
-         let blockedUrl = '';
-         let blockedDomain = '';
+        const blockedUrlDisplay = document.getElementById('blocked-url-display');
+        const goBackButton = document.getElementById('go-back');
+        const proceedButton = document.getElementById('proceed-anyway');
+        const reportFalsePositiveButton = document.getElementById('report-false-positive');
+        const reportStatus = document.getElementById('report-status');
 
-         // Get blocked URL from query parameter
-         const urlParams = new URLSearchParams(window.location.search);
-         blockedUrl = urlParams.get('url');
+        let blockedUrl = '';
+        let blockedDomain = '';
 
-         if (blockedUrl) {
-             blockedUrl = decodeURIComponent(blockedUrl); // Decode URL
-             blockedUrlElement.textContent = blockedUrl;
-             try {
-                 blockedDomain = new URL(blockedUrl).hostname.toLowerCase().replace(/^www\./, '');
-             } catch (e) {
-                 console.error("Warning page: Could not parse domain from URL", blockedUrl);
-                 blockedDomain = blockedUrl; // Fallback
-             }
-         } else {
-             blockedUrlElement.textContent = 'Không thể xác định URL bị chặn.';
-             proceedButton.disabled = true;
-             reportButton.disabled = true;
-         }
+        // Get blocked URL from background script
+        chrome.runtime.sendMessage({ action: 'getWarningDetails' }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error("Warning page: Error getting details:", chrome.runtime.lastError);
+                blockedUrlDisplay.textContent = 'Lỗi tải URL';
+            } else if (response && response.blockedUrl) {
+                blockedUrl = response.blockedUrl;
+                blockedDomain = response.blockedDomain || 'Không xác định'; // Get domain too
+                blockedUrlDisplay.textContent = blockedUrl;
+                blockedUrlDisplay.title = blockedUrl; // Show full URL on hover
+                proceedButton.disabled = false; // Enable buttons once URL is loaded
+                reportFalsePositiveButton.disabled = false;
+            } else {
+                blockedUrlDisplay.textContent = 'Không thể lấy URL bị chặn.';
+                 console.error("Warning page: Invalid response from getWarningDetails", response);
+            }
+        });
 
-         // Button actions
-         backButton.onclick = () => {
-             // Go back in history, safer than closing the tab
-             window.history.back();
-             // As a fallback if history is empty (e.g., opened in new tab directly)
-             // setTimeout(() => window.close(), 100);
-         };
+        goBackButton.onclick = () => {
+            // Go back in history or redirect to a known safe page like about:blank
+            // window.history.back() might not work if the navigation was blocked early
+            // chrome.tabs.goBack() requires tabs permission and context, not ideal here.
+            // Redirecting to new tab page is a safe fallback.
+             window.location.replace('about:blank'); // Replace current history entry
+        };
 
-         proceedButton.onclick = () => {
-             // Option 1: Just navigate there
-             // window.location.replace(blockedUrl); // Use replace to avoid adding warning page to history
+        proceedButton.onclick = () => {
+            if (blockedDomain) {
+                proceedButton.disabled = true;
+                proceedButton.textContent = 'Đang xử lý...';
+                reportFalsePositiveButton.disabled = true; // Disable report while processing allow
 
-             // Option 2: Request temporary allow from background script (more complex)
-              if (blockedDomain) {
-                  chrome.runtime.sendMessage({ action: 'allowTemporarily', domain: blockedDomain }, (response) => {
-                       if (response?.success) {
-                           console.log("Redirecting to:", blockedUrl);
-                           window.location.replace(blockedUrl);
-                       } else {
-                           alert("Không thể cấp phép tạm thời. Vui lòng thử lại hoặc liên hệ hỗ trợ.");
-                       }
-                  });
-              } else {
-                   alert("Không thể xác định tên miền để cấp phép tạm thời.");
-              }
-
-         };
-
-         reportButton.onclick = () => {
-             if (blockedUrl && blockedDomain) {
-                 reportStatus.textContent = 'Đang gửi báo cáo...';
-                 reportStatus.className = 'report-status'; // Reset class
-                 reportButton.disabled = true; // Prevent double-clicking
-                 // We keep proceed disabled until report is done or fails, to avoid navigating away
-
+                 // CHANGE: Send message to background to add temporary allow
                  chrome.runtime.sendMessage(
-                     {
-                         action: 'reportItem',
-                         // Use a specific type for false positives from the warning page
-                         type: 'false_positive_domain',
-                         value: blockedDomain, // Report the normalized domain
-                         reason: `Báo cáo nhầm lẫn từ trang cảnh báo`,
-                         context: `URL đầy đủ: ${blockedUrl}` // Send full URL as context
-                     },
-                     (response) => {
-                          if (chrome.runtime.lastError) {
-                              console.error("Warning page: Error reporting false positive:", chrome.runtime.lastError);
-                               reportStatus.textContent = `Lỗi: Không thể gửi báo cáo (${chrome.runtime.lastError.message}).`;
-                               reportStatus.className = 'report-status error';
-                               reportButton.disabled = false; // Re-enable on error
-                          } else if (response && response.success) {
-                               reportStatus.textContent = 'Cảm ơn! Báo cáo của bạn đã được gửi.';
-                               reportStatus.className = 'report-status success';
-                               // Keep button disabled after successful report? Or allow multiple reports?
-                               // reportButton.disabled = false;
-                          } else {
-                               reportStatus.textContent = `Lỗi: ${response?.message || 'Không thể gửi báo cáo.'}`;
-                               reportStatus.className = 'report-status error';
-                               reportButton.disabled = false; // Re-enable on failure
-                          }
-                     }
+                      { action: 'allowTemporarily', domain: blockedDomain },
+                      (response) => {
+                           if (chrome.runtime.lastError) {
+                                console.error("Warning page: Error setting temporary allow:", chrome.runtime.lastError);
+                                reportStatus.textContent = 'Lỗi: Không thể cho phép tạm thời.'; reportStatus.className = 'report-status error';
+                                proceedButton.disabled = false; proceedButton.textContent = 'Cho phép tạm thời & Tiếp tục';
+                                reportFalsePositiveButton.disabled = false;
+                           } else if (response && response.success) {
+                                console.log("Warning page: Temporary allow granted by background. Redirecting...");
+                                // Redirect to the originally requested URL
+                                window.location.replace(blockedUrl);
+                           } else {
+                                reportStatus.textContent = `Lỗi: ${response?.message || 'Không thể cho phép tạm thời.'}`; reportStatus.className = 'report-status error';
+                                proceedButton.disabled = false; proceedButton.textContent = 'Cho phép tạm thời & Tiếp tục';
+                                reportFalsePositiveButton.disabled = false;
+                           }
+                      }
                  );
-             } else {
-                 reportStatus.textContent = 'Lỗi: Không thể xác định URL hoặc tên miền để báo cáo.';
-                 reportStatus.className = 'report-status error';
-             }
-         };
 
+            } else {
+                 reportStatus.textContent = 'Lỗi: Không thể xác định domain để cho phép tạm thời.'; reportStatus.className = 'report-status error';
+            }
+        };
+
+        reportFalsePositiveButton.onclick = () => {
+            if (blockedDomain && blockedUrl) {
+                reportFalsePositiveButton.disabled = true;
+                proceedButton.disabled = true; // Also disable proceed while reporting
+                reportStatus.textContent = 'Đang gửi báo cáo...'; reportStatus.className = 'report-status info';
+
+                chrome.runtime.sendMessage(
+                    { action: 'reportItem', type: 'false_positive_domain', value: blockedDomain, context: `False positive report from warning page for URL: ${blockedUrl}` },
+                    (response) => {
+                         if (chrome.runtime.lastError) {
+                             console.error("Warning page: Error reporting false positive:", chrome.runtime.lastError);
+                              reportStatus.textContent = 'Lỗi: Không thể gửi báo cáo.'; reportStatus.className = 'report-status error';
+                              reportFalsePositiveButton.disabled = false; proceedButton.disabled = false;
+                         } else if (response && response.success) {
+                              reportStatus.textContent = 'Cảm ơn! Báo cáo của bạn đã được gửi để xem xét.'; reportStatus.className = 'report-status success';
+                              // Keep buttons disabled after successful report? Or re-enable proceed?
+                              // proceedButton.disabled = false; // Optional: Allow proceeding even after reporting
+                         } else {
+                              reportStatus.textContent = `Lỗi: ${response?.message || 'Không thể gửi báo cáo.'}`; reportStatus.className = 'report-status error';
+                              reportFalsePositiveButton.disabled = false; proceedButton.disabled = false;
+                         }
+                    }
+                );
+            } else {
+                reportStatus.textContent = 'Lỗi: Không thể gửi báo cáo (thiếu thông tin domain/URL).'; reportStatus.className = 'report-status error';
+            }
+        };
     </script>
 </body>
 </html>

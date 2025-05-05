@@ -1,192 +1,171 @@
 import os
 import sys
-import logging
 import time
-from typing import Set, Generator
-from dotenv import load_dotenv
-from sqlalchemy import select, exists
-from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime
+from sqlalchemy import create_engine, select, exists
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+# CHANGE: Import models and helpers from app.py
+from app import db, Blocklist, Whitelist, ALLOWED_ITEM_TYPES, normalize_domain_backend, normalize_email_backend, update_data_version, DATABASE_URI, logger
 
-try:
-    from app import db, BlockedDomain, normalize_domain, app as flask_app, initialize_database
-except ImportError as e:
-    print(f"Lỗi import từ app.py: {e}")
-    sys.exit(1)
+# --- Configuration ---
+# CHANGE: Use DATABASE_URI from app.py
+SQLALCHEMY_DATABASE_URI = DATABASE_URI
+ENGINE = create_engine(SQLALCHEMY_DATABASE_URI) # Use echo=True for debugging SQL
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ENGINE)
 
+# Files containing domains/emails to import (adjust paths as needed)
+BLOCKLIST_FILES = {
+    'domain': ['urls.txt', 'urls-ABP.txt', 'CLDBllacklist.txt'],
+    'email': [] # Add filenames for email blocklists if you have them
+}
+WHITELIST_FILES = {
+    'domain': [], # Add filenames for domain whitelists
+    'email': [] # Add filenames for email whitelists
+}
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stdout)
-logger = logging.getLogger(__name__)
+# --- Helper Functions ---
 
-
-URLS_TXT_PATH = 'urls.txt'
-URLS_ABP_PATH = 'urls-ABP.txt'
-CLDBLACKLIST_PATH = 'CLDBllacklist.txt'
-
-def process_urls_txt(filepath: str) -> Generator[str, None, None]:
-    """Đọc file urls.txt và trả về các domain đã chuẩn hóa."""
+def import_list(session, list_model, item_type, file_path):
+    """Imports items from a file into the specified list model."""
     count = 0
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                domain = line.strip()
-                if domain and not domain.startswith('#'):
-                    normalized = normalize_domain(domain)
-                    if normalized:
-                        yield normalized
-                        count += 1
-    except FileNotFoundError:
-        logger.warning(f"File không tìm thấy: {filepath}")
-    except Exception as e:
-        logger.error(f"Lỗi khi đọc file {filepath}: {e}")
-    logger.info(f"Đã xử lý {count} domain hợp lệ từ {filepath}")
-
-def process_urls_abp(filepath: str) -> Generator[str, None, None]:
-    """Đọc file urls-ABP.txt, trích xuất và chuẩn hóa domain."""
-    count = 0
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('||') and line.endswith('^'):
-                    domain_part = line[2:-1].split('$')[0]
-                    domain_part = domain_part.split(':')[0]
-                    if '/' in domain_part or '*' in domain_part:
-                        continue
-                    normalized = normalize_domain(domain_part)
-                    if normalized:
-                        yield normalized
-                        count += 1
-    except FileNotFoundError:
-        logger.warning(f"File không tìm thấy: {filepath}")
-    except Exception as e:
-        logger.error(f"Lỗi khi đọc file {filepath}: {e}")
-    logger.info(f"Đã xử lý {count} domain hợp lệ từ {filepath}")
-
-def process_cld_blacklist(filepath: str) -> Generator[str, None, None]:
-    """Đọc file CLDBllacklist.txt và trích xuất các domain từ các dòng chứa '||domain.com$all'."""
-    count = 0
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                # Chỉ lấy các dòng bắt đầu với || và chứa $all
-                if line.startswith('||') and '$all' in line:
-                    domain_part = line[2:].split('$')[0]
-                    normalized = normalize_domain(domain_part)
-                    if normalized:
-                        yield normalized
-                        count += 1
-    except FileNotFoundError:
-        logger.warning(f"File không tìm thấy: {filepath}")
-    except Exception as e:
-        logger.error(f"Lỗi khi đọc file {filepath}: {e}")
-    logger.info(f"Đã xử lý {count} domain hợp lệ từ {filepath}")
-
-def import_domains_to_db(domains: Set[str], source_tag: str):
-    """Import danh sách domain vào database, tránh trùng lặp."""
-    inserted_count = 0
+    added_count = 0
     skipped_count = 0
     error_count = 0
-    batch_size = 1000
-    domains_to_insert = []
+    start_time = time.time()
 
-    with flask_app.app_context():
-        logger.info(f"Bắt đầu import {len(domains)} domain từ nguồn '{source_tag}'...")
-        start_time = time.time()
-        processed_count = 0
+    logger.info(f"Starting import for {list_model.__name__} ({item_type}) from '{file_path}'...")
 
-        for domain in domains:
-            processed_count += 1
-            if processed_count % 10000 == 0:
-                logger.info(f"Đã xử lý {processed_count}/{len(domains)} domain...")
+    if not os.path.exists(file_path):
+        logger.error(f"File not found: {file_path}. Skipping.")
+        return 0, 0, 0, 1 # Indicate file not found error
 
-            try:
-                exists_stmt = select(exists().where(BlockedDomain.domain_name == domain))
-                domain_exists = db.session.execute(exists_stmt).scalar()
-
-                if not domain_exists:
-                    new_domain = BlockedDomain(
-                        domain_name=domain,
-                        source=source_tag,
-                        status='active',
-                        reason='Bulk imported'
-                    )
-                    domains_to_insert.append(new_domain)
-                    if len(domains_to_insert) >= batch_size:
-                        logger.info(f"Đang commit batch {batch_size} domain...")
-                        db.session.add_all(domains_to_insert)
-                        db.session.commit()
-                        inserted_count += len(domains_to_insert)
-                        domains_to_insert = []
-                else:
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                count += 1
+                value = line.strip()
+                if not value or value.startswith('#') or value.startswith('//'): # Skip empty lines and comments
                     skipped_count += 1
+                    continue
 
-            except SQLAlchemyError as e:
-                logger.error(f"Lỗi DB khi xử lý domain '{domain}': {e}")
-                db.session.rollback()
-                error_count += 1
-            except Exception as e:
-                logger.error(f"Lỗi không mong muốn khi xử lý domain '{domain}': {e}")
-                db.session.rollback()
-                error_count += 1
+                # Normalize based on type
+                normalized_value = None
+                if item_type == 'domain':
+                    normalized_value = normalize_domain_backend(value)
+                elif item_type == 'email':
+                    normalized_value = normalize_email_backend(value)
+                else:
+                     logger.warning(f"Unsupported item type '{item_type}' during import. Skipping line {count}.")
+                     skipped_count += 1
+                     continue
 
-        # Commit batch cuối cùng (nếu có)
-        if domains_to_insert:
-            try:
-                logger.info(f"Đang commit batch cuối cùng ({len(domains_to_insert)} domain)...")
-                db.session.add_all(domains_to_insert)
-                db.session.commit()
-                inserted_count += len(domains_to_insert)
-            except SQLAlchemyError as e:
-                logger.error(f"Lỗi DB khi commit batch cuối: {e}")
-                db.session.rollback()
-                error_count += len(domains_to_insert)
-            except Exception as e:
-                logger.error(f"Lỗi không mong muốn khi commit batch cuối: {e}")
-                db.session.rollback()
-                error_count += len(domains_to_insert)
+                if not normalized_value:
+                    # logger.warning(f"Invalid format or skipped value '{value}' (line {count}).")
+                    skipped_count += 1
+                    continue
 
-        end_time = time.time()
-        duration = end_time - start_time
-        logger.info(f"Hoàn thành import trong {duration:.2f} giây.")
-        logger.info(f"Kết quả: Đã thêm = {inserted_count}, Bỏ qua = {skipped_count}, Lỗi = {error_count}")
+                try:
+                    # Check existence efficiently before adding
+                    exists_query = select(exists().where(list_model.value == normalized_value))
+                    item_exists = session.execute(exists_query).scalar()
 
-def main():
-    logger.info("Bắt đầu script import domain...")
+                    if item_exists:
+                        # logger.debug(f"'{normalized_value}' already exists. Skipping.")
+                        skipped_count += 1
+                        continue
 
-    logger.info("Đang kiểm tra và khởi tạo cấu trúc database (nếu cần)...")
-    with flask_app.app_context():
-        initialize_database()
-    logger.info("Kiểm tra/khởi tạo database hoàn tất.")
+                    # Add new item
+                    new_item = list_model(item_type=item_type, value=normalized_value, added_on=datetime.utcnow())
+                    session.add(new_item)
+                    added_count += 1
 
-    # Đọc và xử lý các file
-    all_domains: Set[str] = set()
+                    # Commit periodically to manage memory and transaction size
+                    if added_count % 1000 == 0:
+                        session.commit()
+                        logger.info(f"Processed {count} lines, Added {added_count}, Skipped {skipped_count}...")
 
-    logger.info(f"Đang xử lý file: {URLS_TXT_PATH}")
-    for domain in process_urls_txt(URLS_TXT_PATH):
-        all_domains.add(domain)
+                except IntegrityError: # Handle rare race conditions or duplicates if check fails
+                    session.rollback()
+                    logger.warning(f"Integrity error adding '{normalized_value}' (line {count}). Likely duplicate.")
+                    skipped_count += 1
+                except SQLAlchemyError as e:
+                    session.rollback()
+                    logger.error(f"Database error on line {count} ('{value}'): {e}")
+                    error_count += 1
+                    # Optionally stop import on error or continue
+                    # continue
 
-    logger.info(f"Đang xử lý file: {URLS_ABP_PATH}")
-    for domain in process_urls_abp(URLS_ABP_PATH):
-        all_domains.add(domain)
+            # Final commit for any remaining items
+            session.commit()
 
-    logger.info(f"Đang xử lý file: {CLDBLACKLIST_PATH}")
-    for domain in process_cld_blacklist(CLDBLACKLIST_PATH):
-        all_domains.add(domain)
+    except Exception as e:
+        logger.error(f"Error reading file '{file_path}': {e}")
+        error_count += 1
+    finally:
+         # CHANGE: Update the data version AFTER the import is complete
+         if added_count > 0:
+              data_type_key = f"{list_model.__name__.lower()}_{item_type}s"
+              update_data_version(data_type_key) # Use the function from app.py
+              logger.info(f"Updated data version for {data_type_key} after import.")
 
-    logger.info(f"Tổng cộng tìm thấy {len(all_domains)} domain duy nhất cần import.")
 
-    if not all_domains:
-        logger.info("Không tìm thấy domain nào để import. Kết thúc.")
-        return
+    end_time = time.time()
+    logger.info(f"Import finished for '{file_path}'.")
+    logger.info(f"Total lines processed: {count}")
+    logger.info(f"Items added: {added_count}")
+    logger.info(f"Items skipped (duplicates/invalid/comments): {skipped_count}")
+    logger.info(f"Errors encountered: {error_count}")
+    logger.info(f"Time taken: {end_time - start_time:.2f} seconds")
 
-    # Import vào database
-    import_domains_to_db(all_domains, source_tag='BulkImportScript')
-    logger.info("Script import domain đã hoàn tất.")
+    return added_count, skipped_count, error_count
 
+# --- Main Import Logic ---
 if __name__ == "__main__":
-    if not os.getenv('DATABASE_URL'):
-        logger.critical("Lỗi: Biến môi trường DATABASE_URL chưa được thiết lập.")
+    logger.info("Database Import Script Started.")
+    db_session = SessionLocal()
+
+    total_added = 0
+    total_skipped = 0
+    total_errors = 0
+
+    try:
+        # Import Blocklists
+        logger.info("\n--- Importing Blocklists ---")
+        for item_type, files in BLOCKLIST_FILES.items():
+            if item_type not in ALLOWED_ITEM_TYPES: continue
+            for file in files:
+                added, skipped, errors = import_list(db_session, Blocklist, item_type, file)
+                total_added += added
+                total_skipped += skipped
+                total_errors += errors
+
+        # Import Whitelists
+        logger.info("\n--- Importing Whitelists ---")
+        for item_type, files in WHITELIST_FILES.items():
+             if item_type not in ALLOWED_ITEM_TYPES: continue
+             for file in files:
+                added, skipped, errors = import_list(db_session, Whitelist, item_type, file)
+                total_added += added
+                total_skipped += skipped
+                total_errors += errors
+
+        logger.info("\n--- Import Summary ---")
+        logger.info(f"Total items added across all files: {total_added}")
+        logger.info(f"Total items skipped: {total_skipped}")
+        logger.info(f"Total errors encountered: {total_errors}")
+
+    except Exception as e:
+        logger.critical(f"An unexpected error occurred during the import process: {e}", exc_info=True)
+        total_errors += 1
+    finally:
+        db_session.close()
+        logger.info("Database session closed.")
+
+    if total_errors > 0:
+        logger.warning("Import completed with errors.")
         sys.exit(1)
-    main()
+    else:
+        logger.info("Import completed successfully.")
+        sys.exit(0)

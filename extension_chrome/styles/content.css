@@ -1,35 +1,38 @@
-/* Đánh dấu Lừa đảo (Đỏ) */
-.phishing-guard-alert-phishing {
-  border: 2px solid #d32f2f !important; /* Use !important sparingly */
-  background-color: rgba(255, 0, 0, 0.1) !important;
-  padding: 1px 3px !important;
-  border-radius: 4px !important;
-  /* display: inline-block !important; Ensures border wraps content */
-  cursor: help !important; /* Indicate tooltip is available */
+/* Add styles for the warning banner */
+.phishing-guard-warning-banner-content {
+  padding: 10px 15px;
+  margin: 10px 0; /* Adjust margin as needed */
+  border: 1px solid #f0ad4e; /* Warning border color */
+  background-color: #fcf8e3; /* Light yellow background */
+  color: #8a6d3b; /* Warning text color */
+  border-radius: 4px;
+  font-family: sans-serif; /* Use a common font */
+  font-size: 13px; /* Adjust size */
+  line-height: 1.4;
+  /* Position relative might be needed if absolute positioning elements inside */
+  position: relative;
+  z-index: 9999; /* Ensure it's on top of most email content */
 }
 
-/* Đánh dấu Đáng ngờ (Vàng) - Chỉ áp dụng cho container nội dung */
-.phishing-guard-alert-suspicious {
-   /* Optional: Add subtle border to the whole container */
-   /* border-left: 4px solid orange !important; */
-   position: relative !important; /* Needed for positioning the banner */
+.phishing-guard-warning-banner-content strong {
+  font-weight: bold;
+  color: #c09853; /* Darker warning color for emphasis */
 }
 
-.phishing-guard-alert-suspicious-banner {
-    background-color: #fff3e0; /* Light orange */
-    border: 1px solid #ffcc80; /* Orange border */
-    border-radius: 4px;
-    padding: 8px 12px;
-    margin-bottom: 10px; /* Space below banner */
-    color: #e65100; /* Dark orange text */
-    font-size: 0.9em;
-    line-height: 1.4;
-    position: sticky; /* Keep visible when scrolling within email body */
-    top: 0;
-    z-index: 100; /* Ensure it's on top */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+.phishing-guard-warning-banner-content small {
+   font-size: 11px;
+   color: #a08c6c;
+   display: block; /* Make small text appear on new line */
+   margin-top: 5px;
 }
 
-.phishing-guard-alert-suspicious-banner strong {
-    font-weight: bold;
+/* You might need more specific selectors depending on the email client */
+/* Example: Adjust margin if inside Gmail */
+.nH .phishing-guard-warning-banner-content {
+   margin: 10px 20px; /* Gmail specific margin */
+}
+
+/* Example: Adjust margin if inside Outlook */
+.BkRhG .phishing-guard-warning-banner-content {
+    margin: 10px 5px; /* Outlook specific margin */
 }

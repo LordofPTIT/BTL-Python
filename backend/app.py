@@ -4,659 +4,494 @@ import re
 import sys
 import time
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse
-
-from dotenv import load_dotenv
+from urllib.parse import urlparse, unquote # Added unquote
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import select, exists, func, inspect, desc
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+# Optional: For database migrations
+# from flask_migrate import Migrate
 
 # --- Constants ---
 ALLOWED_ITEM_TYPES = {'domain', 'email'}
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 DEFAULT_PAGE = 1
-DEFAULT_PER_PAGE = 100 # Default items per page for lists
+DEFAULT_PER_PAGE = 1000 # Increase default per page for local cache fetching
 
-# --- Environment & Logging Setup ---
-if os.path.exists(".env"):
-    load_dotenv()
-    print("Loaded environment variables from .env file.")
-else:
-    print(".env file not found, relying on system environment variables.")
+# --- Configuration ---
+# CHANGE: Use SQLite for local database
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATABASE_FILE = 'local_phishing_guard.db'
+DATABASE_URI = f'sqlite:///{os.path.join(BASE_DIR, DATABASE_FILE)}'
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
-)
+app = Flask(__name__)
+# CHANGE: Configure Flask app for SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URI
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ECHO'] = False # Set to True for debugging SQL queries
+
+# CHANGE: Enable CORS for local extension access (adjust origin if needed)
+CORS(app, resources={r"/api/*": {"origins": "chrome-extension://*"}}) # Be more specific if you know your extension ID
+
+db = SQLAlchemy(app)
+# Optional: Initialize Flask-Migrate
+# migrate = Migrate(app, db)
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Flask App Initialization ---
-app = Flask(__name__)
-
-# --- CORS Configuration ---
-# Allows configuration via environment variable for production flexibility.
-allowed_origins = os.getenv('ALLOWED_ORIGINS', '*')
-if allowed_origins != '*':
-    allowed_origins_list = [origin.strip() for origin in allowed_origins.split(',')]
-    logger.info(f"Configuring CORS for specific origins: {allowed_origins_list}")
-    CORS(app, origins=allowed_origins_list, supports_credentials=True, methods=["GET", "POST", "OPTIONS"])
-else:
-    # This is acceptable for development or controlled environments,
-    # but for production, it's recommended to set specific ALLOWED_ORIGINS.
-    logger.warning("Configuring CORS to allow all origins (DEVELOPMENT ONLY - Restrict in Production via ALLOWED_ORIGINS env var)")
-    CORS(app, origins="*", supports_credentials=True, methods=["GET", "POST", "OPTIONS"])
-
-
-# --- Database Configuration ---
-db_url = os.getenv('DATABASE_URL')
-if not db_url:
-    logger.critical("CRITICAL: Biến môi trường DATABASE_URL chưa được thiết lập.")
-    raise ValueError("DATABASE_URL environment variable not set.")
-# Adjust for Heroku/Render convention
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-    logger.info("Updated DATABASE_URL prefix to postgresql://")
-
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 300, # Recycle connections every 5 minutes
-}
-db = SQLAlchemy(app)
-
 # --- Database Models ---
-class BlockedDomain(db.Model):
-    """Model for storing blocked domain names."""
-    __tablename__ = 'blocked_domains'
+# Simple version tracking table (can be expanded)
+class DataVersion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    domain_name = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    reason = db.Column(db.String(255), nullable=True)
-    source = db.Column(db.String(100), nullable=True)
-    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
-    status = db.Column(db.String(50), default='active', nullable=False, index=True) # e.g., active, inactive
+    data_type = db.Column(db.String(50), unique=True, nullable=False) # e.g., 'phishing_domains', 'whitelist_emails'
+    version = db.Column(db.String(100), nullable=False, default=lambda: str(time.time())) # Use timestamp as simple version
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Blocklist(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    item_type = db.Column(db.String(10), nullable=False, index=True) # 'domain' or 'email'
+    value = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    added_on = db.Column(db.DateTime, default=datetime.utcnow)
+    # Add version tracking? Could get complex. Simplest is to update DataVersion table on change.
 
     def __repr__(self):
-        return f'<BlockedDomain {self.domain_name}>'
+        return f'<Blocklist {self.item_type}:{self.value}>'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'domain_name': self.domain_name,
-            'reason': self.reason,
-            'source': self.source,
-            'added_at': self.added_at.isoformat() if self.added_at else None,
-            'status': self.status
-        }
-
-class BlockedEmail(db.Model):
-    """Model for storing blocked email addresses."""
-    __tablename__ = 'blocked_emails'
+class Whitelist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    email_address = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    reason = db.Column(db.String(255), nullable=True)
-    source = db.Column(db.String(100), nullable=True)
-    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
-    status = db.Column(db.String(50), default='active', nullable=False, index=True) # e.g., active, inactive
+    item_type = db.Column(db.String(10), nullable=False, index=True) # 'domain' or 'email'
+    value = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    added_on = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
-        return f'<BlockedEmail {self.email_address}>'
+        return f'<Whitelist {self.item_type}:{self.value}>'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'email_address': self.email_address,
-            'reason': self.reason,
-            'source': self.source,
-            'added_at': self.added_at.isoformat() if self.added_at else None,
-            'status': self.status
-        }
-
-class ReportedItem(db.Model):
-    """Model for items reported by users."""
-    __tablename__ = 'reported_items'
+class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    item_type = db.Column(db.String(50), nullable=False, index=True) # 'domain' or 'email'
-    value = db.Column(db.String(255), nullable=False, index=True) # normalized domain or email
-    reason = db.Column(db.String(500), nullable=True)
-    source = db.Column(db.String(100), nullable=True) # e.g., 'chrome_extension_v1.2'
-    reported_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
-    status = db.Column(db.String(50), default='pending', nullable=False, index=True) # pending, approved, rejected, false_positive
+    item_type = db.Column(db.String(50), nullable=False) # Allow 'false_positive_domain' etc.
+    value = db.Column(db.String(255), nullable=False, index=True)
+    reason = db.Column(db.Text, nullable=True)
+    source = db.Column(db.String(100), nullable=True) # e.g., 'chrome_extension'
+    reported_on = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(50), default='received') # e.g., 'received', 'investigating', 'confirmed_phishing', 'rejected'
 
     def __repr__(self):
-        return f'<ReportedItem {self.item_type}:{self.value} ({self.status})>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'item_type': self.item_type,
-            'value': self.value,
-            'reason': self.reason,
-            'source': self.source,
-            'reported_at': self.reported_at.isoformat() if self.reported_at else None,
-            'status': self.status
-        }
-
-class WhitelistedItem(db.Model):
-    """Model for whitelisted domains or emails."""
-    __tablename__ = 'whitelisted_items'
-    id = db.Column(db.Integer, primary_key=True)
-    item_type = db.Column(db.String(50), nullable=False, index=True) # 'domain' or 'email'
-    value = db.Column(db.String(255), nullable=False, index=True) # normalized domain or email
-    reason = db.Column(db.String(255), nullable=True)
-    added_by = db.Column(db.String(100), nullable=True) # e.g., 'admin', 'user_report_override'
-    added_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    # Ensure unique combination of type and value
-    __table_args__ = (db.UniqueConstraint('item_type', 'value', name='_item_type_value_uc'),)
-
-    def __repr__(self):
-        return f'<WhitelistedItem {self.item_type}:{self.value}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'item_type': self.item_type,
-            'value': self.value,
-            'reason': self.reason,
-            'added_by': self.added_by,
-            'added_at': self.added_at.isoformat() if self.added_at else None
-        }
+        return f'<Report {self.item_type}:{self.value} ({self.status})>'
 
 # --- Helper Functions ---
-def normalize_domain(domain: str) -> str | None:
-    """
-    Normalizes a domain name to a standard format (lowercase, strip www, strip trailing dot).
-    Returns None if input is invalid or represents an IP address.
-    """
-    if not domain or not isinstance(domain, str):
+
+def get_data_version(data_type):
+    """Gets the current version string for a given data type."""
+    version_entry = db.session.execute(select(DataVersion).filter_by(data_type=data_type)).scalar_one_or_none()
+    if version_entry:
+        return version_entry.version
+    return "0" # Default initial version if not found
+
+def update_data_version(data_type):
+    """Updates the version string for a given data type to the current timestamp."""
+    try:
+        version_entry = db.session.execute(select(DataVersion).filter_by(data_type=data_type)).scalar_one_or_none()
+        new_version = str(time.time())
+        if version_entry:
+            version_entry.version = new_version
+            version_entry.last_updated = datetime.utcnow()
+            logger.info(f"Updating version for {data_type} to {new_version}")
+        else:
+            version_entry = DataVersion(data_type=data_type, version=new_version)
+            db.session.add(version_entry)
+            logger.info(f"Creating initial version for {data_type}: {new_version}")
+        db.session.commit()
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Error updating data version for {data_type}: {e}")
+
+def normalize_domain_backend(url_or_domain):
+    """Normalizes a URL or domain name for database storage/lookup."""
+    if not url_or_domain or not isinstance(url_or_domain, str):
         return None
     try:
-        domain = domain.strip().lower()
-        if not domain:
-            return None
+        # Handle potential full URLs first
+        if '://' in url_or_domain:
+            parsed = urlparse(url_or_domain)
+            hostname = parsed.hostname
+        else:
+            hostname = url_or_domain # Assume it's already a domain/hostname
 
-        # Basic IP address check (v4 and v6) - we don't block IPs this way usually
-        if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", domain) or ':' in domain:
-             # logger.debug(f"Ignoring potential IP address: {domain}")
-             return None
+        if not hostname: return None
 
-        # Add scheme if missing for urlparse
-        if '://' not in domain:
-            domain = 'http://' + domain
-
-        parsed = urlparse(domain)
-        hostname = parsed.hostname
-        if not hostname:
-            return None
-
-        # Strip leading/trailing dots and www.
-        hostname = hostname.strip('.')
+        # Basic cleanup
+        hostname = hostname.lower().strip()
+        # Remove www. prefix
         if hostname.startswith('www.'):
             hostname = hostname[4:]
+        # Remove trailing dot
+        if hostname.endswith('.'):
+            hostname = hostname[:-1]
 
-        # Reject empty hostnames after stripping
-        if not hostname:
-            return None
+        # Basic IP address check (optional, adjust if needed)
+        if re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', hostname):
+            return None # Don't treat IPs as domains for typical phishing lists
 
-        # Basic check for invalid characters (though urlparse usually handles this)
-        if re.search(r"[^a-z0-9\-\.]", hostname):
-             logger.warning(f"Potential invalid characters in hostname: {hostname} (from: {domain})")
+        # Add more sophisticated checks if needed (e.g., Punycode, valid TLDs)
+        if '.' not in hostname: # Basic check for a TLD separator
              return None
 
         return hostname
     except Exception as e:
-        logger.warning(f"Error normalizing domain '{domain}': {e}")
+        logger.warning(f"Could not normalize domain '{url_or_domain}': {e}")
         return None
 
-def is_valid_email(email: str) -> bool:
-    """Validates email format using regex."""
+def normalize_email_backend(email):
+    """Validates and normalizes an email address."""
     if not email or not isinstance(email, str):
-        return False
-    return re.match(EMAIL_REGEX, email) is not None
+        return None
+    email = email.lower().strip()
+    if re.fullmatch(EMAIL_REGEX, email):
+        return email
+    logger.warning(f"Invalid email format: {email}")
+    return None
 
-# --- Error Handling ---
-@app.errorhandler(400)
-def bad_request_error(error):
-    description = getattr(error, 'description', 'Bad request')
-    logger.warning(f"Bad Request: {description}")
-    # Ensure consistent JSON error response
-    return jsonify(error=str(description)), 400
+def add_to_list(list_model, item_type, value, skip_normalization=False):
+    """Adds an item to the specified list (Blocklist or Whitelist)."""
+    if item_type not in ALLOWED_ITEM_TYPES:
+        return False, "Invalid item type"
 
-@app.errorhandler(404)
-def not_found_error(error):
-    logger.info(f"Not Found: {request.path}")
-    return jsonify(error="Resource not found"), 404
+    normalized_value = value # Assume pre-normalized if skip_normalization is True
+    if not skip_normalization:
+        if item_type == 'domain':
+            normalized_value = normalize_domain_backend(value)
+        elif item_type == 'email':
+            normalized_value = normalize_email_backend(value)
 
-@app.errorhandler(415)
-def unsupported_media_type_error(error):
-    logger.warning(f"Unsupported Media Type: {request.content_type}")
-    return jsonify(error="Unsupported Media Type. Request must be JSON."), 415
+    if not normalized_value:
+        return False, f"Invalid {item_type} value: {value}"
 
-@app.errorhandler(500)
-def internal_error(error):
-    original_exception = getattr(error, "original_exception", error)
-    logger.error(f"Internal Server Error: {original_exception}", exc_info=True)
-    # Rollback session in case of DB issues during the error
     try:
+        # Check if exists
+        exists_query = select(exists().where(list_model.value == normalized_value))
+        item_exists = db.session.execute(exists_query).scalar()
+
+        if item_exists:
+            logger.info(f"{normalized_value} already exists in {list_model.__name__}.")
+            return True, f"Item already exists in {list_model.__name__}"
+
+        # Add new item
+        new_item = list_model(item_type=item_type, value=normalized_value)
+        db.session.add(new_item)
+        db.session.commit()
+        logger.info(f"Added '{normalized_value}' to {list_model.__name__}.")
+
+        # CHANGE: Update the version after successful addition
+        data_type_key = f"{list_model.__name__.lower()}_{item_type}s" # e.g., blocklist_domains
+        update_data_version(data_type_key)
+
+        return True, f"Successfully added to {list_model.__name__}"
+    except IntegrityError: # Catch potential race conditions if unique constraint fails
         db.session.rollback()
-    except Exception as rollback_err:
-        logger.error(f"Error during rollback after internal error: {rollback_err}")
-    return jsonify(error="Internal server error"), 500
-
-@app.errorhandler(SQLAlchemyError)
-def handle_db_error(error):
-    logger.error(f"Database Error: {error}", exc_info=True)
-    db.session.rollback()
-    return jsonify(error="Database operation failed"), 500
-
-@app.errorhandler(IntegrityError)
-def handle_integrity_error(error):
-    """Handles unique constraint violations etc."""
-    error_msg = str(getattr(error, 'orig', error))
-    logger.warning(f"Database Integrity Error: {error_msg}")
-    db.session.rollback()
-    if "duplicate key value violates unique constraint" in error_msg.lower():
-         # More specific message for duplicates
-         return jsonify(error="Item already exists or conflicts with existing data."), 409 # 409 Conflict
-    # General integrity error
-    return jsonify(error="Data conflict or constraint violation."), 400
+        logger.warning(f"Integrity error (likely race condition) adding '{normalized_value}' to {list_model.__name__}.")
+        return True, f"Item likely already exists (IntegrityError)" # Treat as success if it exists
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error adding '{normalized_value}' to {list_model.__name__}: {e}")
+        return False, "Database error"
 
 # --- API Endpoints ---
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Simple health check endpoint."""
-    # Could add a basic DB check here if needed
-    # try:
-    #     db.session.execute(select(1))
-    #     db_status = "ok"
-    # except Exception:
-    #     db_status = "error"
-    # return jsonify(status="ok", database=db_status), 200
-    return jsonify(status="ok"), 200
 
-@app.route('/api/check', methods=['GET'])
-def check_item():
-    """
-    Checks if a given domain or email is blocked or whitelisted.
-    Query Parameters:
-        type (str): 'domain' or 'email'. Required.
-        value (str): The domain name or email address. Required.
-    Returns:
-        JSON: {'status': 'blocked'|'whitelisted'|'safe', 'details': {...}}
-              or {'error': '...'} on failure.
-    """
-    request_start_time = time.time()
-    logger.info(f"Received /api/check request: {request.args}")
-
-    item_type = request.args.get('type')
-    value = request.args.get('value')
-
-    # --- Input Validation ---
-    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
-        logger.warning(f"/api/check: Invalid or missing 'type' parameter: {item_type}")
-        return jsonify(error=f"Invalid or missing 'type' parameter. Must be one of {ALLOWED_ITEM_TYPES}."), 400
-
-    if not value:
-        logger.warning("/api/check: Missing 'value' parameter.")
-        return jsonify(error="Missing 'value' parameter."), 400
-
-    # --- Normalization ---
-    normalized_value = None
-    if item_type == 'domain':
-        normalized_value = normalize_domain(value)
-        if not normalized_value:
-            # Even if normalization fails, it's 'safe' from our list perspective
-            logger.info(f"/api/check: Invalid or non-normalizable domain format: {value}. Treating as safe.")
-            processing_time = time.time() - request_start_time
-            return jsonify(status="safe", details={"reason": "Invalid format"}, processing_time_ms=processing_time * 1000), 200
-    elif item_type == 'email':
-        if not is_valid_email(value):
-            logger.warning(f"/api/check: Invalid email format: {value}")
-            # Return error for clearly invalid email format
-            return jsonify(error=f"Invalid email format: {value}"), 400
-        normalized_value = value.lower() # Normalize email to lowercase
-
-    logger.info(f"/api/check: Processing type='{item_type}', normalized_value='{normalized_value}'")
-
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    """Simple endpoint to check if the API is running."""
+    logger.info("API status check requested.")
+    # Check DB connection
+    db_status = "disconnected"
     try:
-        # --- Whitelist Check ---
-        whitelist_stmt = select(WhitelistedItem).where(
-            WhitelistedItem.item_type == item_type,
-            func.lower(WhitelistedItem.value) == normalized_value # Case-insensitive check
-        )
-        whitelisted_entry = db.session.execute(whitelist_stmt).scalar_one_or_none()
-        if whitelisted_entry:
-            logger.info(f"/api/check: Item '{normalized_value}' is whitelisted.")
-            processing_time = time.time() - request_start_time
-            return jsonify(status="whitelisted", details=whitelisted_entry.to_dict(), processing_time_ms=processing_time * 1000), 200
-
-        # --- Blocklist Check ---
-        blocked_entry = None
-        Model = BlockedDomain if item_type == 'domain' else BlockedEmail
-        value_column = BlockedDomain.domain_name if item_type == 'domain' else BlockedEmail.email_address
-
-        block_stmt = select(Model).where(
-            value_column == normalized_value,
-            Model.status == 'active' # Only check active blocks
-        )
-        blocked_entry = db.session.execute(block_stmt).scalar_one_or_none()
-
-        processing_time = time.time() - request_start_time
-        if blocked_entry:
-            logger.info(f"/api/check: Item '{normalized_value}' is blocked.")
-            return jsonify(status="blocked", details=blocked_entry.to_dict(), processing_time_ms=processing_time * 1000), 200
-        else:
-            logger.info(f"/api/check: Item '{normalized_value}' is safe (not blocked or whitelisted).")
-            return jsonify(status="safe", details={}, processing_time_ms=processing_time * 1000), 200
-
-    except SQLAlchemyError as e:
-        # Log specific DB errors but return generic message
-        logger.error(f"Database error during /api/check for '{normalized_value}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Database query failed"), 500
+        # Try a simple query
+        db.session.execute(select(1))
+        db_status = "connected"
     except Exception as e:
-        # Catch any other unexpected errors
-        logger.error(f"Unexpected error during /api/check for '{normalized_value}': {e}", exc_info=True)
-        db.session.rollback() # Attempt rollback on any error
-        return jsonify(error="Internal server error"), 500
+        logger.error(f"Database connection check failed: {e}")
 
-@app.route('/api/report', methods=['POST'])
-def report_item():
-    """
-    Reports a suspicious domain or email.
-    JSON Body:
-        {
-            "type": "domain" | "email",
-            "value": "...",
-            "reason": "Optional reason from user",
-            "source": "Optional source (e.g., 'chrome_extension')"
-        }
-    Returns:
-        JSON: {'message': 'Report submitted successfully.', 'report': {...}} or error.
-    """
-    request_start_time = time.time()
-    logger.info(f"Received /api/report request") # Avoid logging full body initially for privacy
+    return jsonify({
+        "status": "ok",
+        "message": "Phishing Guard Local API is running.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database_status": db_status
+    }), 200
 
-    if not request.is_json:
-        logger.warning("/api/report: Request content type is not JSON.")
-        return jsonify(error="Request must be JSON"), 415
-
-    data = request.json
-    item_type = data.get('type')
-    value = data.get('value')
-    reason = data.get('reason') # Optional
-    source = data.get('source', 'unknown') # Optional with default
-
-    # --- Input Validation ---
-    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
-        logger.warning(f"/api/report: Invalid or missing 'type': {item_type}")
-        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
-
-    if not value:
-        logger.warning("/api/report: Missing 'value'.")
-        return jsonify(error="Missing 'value' parameter."), 400
-
-    # --- Normalization ---
-    normalized_value = None
-    if item_type == 'domain':
-        normalized_value = normalize_domain(value)
-        if not normalized_value:
-            logger.warning(f"/api/report: Invalid domain format for report: {value}")
-            return jsonify(error=f"Invalid domain format for report: {value}"), 400
-    elif item_type == 'email':
-        if not is_valid_email(value):
-            logger.warning(f"/api/report: Invalid email format for report: {value}")
-            return jsonify(error=f"Invalid email format for report: {value}"), 400
-        normalized_value = value.lower()
-
-    # Log processed info
-    logger.info(f"/api/report: Processing report for type='{item_type}', normalized_value='{normalized_value}', source='{source}'")
-
-
-    try:
-        # --- Check if Whitelisted ---
-        whitelist_exists = db.session.query(
-            exists().where(WhitelistedItem.item_type == item_type, func.lower(WhitelistedItem.value) == normalized_value)
-        ).scalar()
-
-        if whitelist_exists:
-             logger.info(f"/api/report: Item '{normalized_value}' is whitelisted, report ignored.")
-             processing_time = time.time() - request_start_time
-             # Use 200 OK but indicate the reason it wasn't created
-             return jsonify(message="Item is whitelisted and cannot be reported.", status="ignored_whitelisted", processing_time_ms=processing_time * 1000), 200
-
-        # --- Check if Already Blocked ---
-        Model = BlockedDomain if item_type == 'domain' else BlockedEmail
-        value_column = BlockedDomain.domain_name if item_type == 'domain' else BlockedEmail.email_address
-        block_exists = db.session.query(
-             exists().where(value_column == normalized_value, Model.status == 'active')
-        ).scalar()
-
-        if block_exists:
-             logger.info(f"/api/report: Item '{normalized_value}' is already actively blocked, report ignored.")
-             processing_time = time.time() - request_start_time
-             return jsonify(message="Item is already blocked.", status="ignored_already_blocked", processing_time_ms=processing_time * 1000), 200
-
-
-        # --- Check if Pending Report Exists ---
-        report_exists = db.session.query(
-            exists().where(
-                ReportedItem.item_type == item_type,
-                ReportedItem.value == normalized_value,
-                ReportedItem.status == 'pending' # Only check pending reports
-            )
-        ).scalar()
-
-        if report_exists:
-            logger.info(f"/api/report: Item '{normalized_value}' already has a pending report.")
-            processing_time = time.time() - request_start_time
-            # 200 OK or 208 Already Reported might be suitable
-            return jsonify(message="Report already exists and is pending review.", status="already_reported", processing_time_ms=processing_time * 1000), 200
-
-        # --- Create New Report ---
-        new_report = ReportedItem(
-            item_type=item_type,
-            value=normalized_value,
-            reason=reason,
-            source=source,
-            status='pending' # Default status for new reports
-        )
-        db.session.add(new_report)
-        db.session.commit() # Commit to get the ID and save
-
-        logger.info(f"Successfully created report ID {new_report.id} for '{normalized_value}'.")
-        processing_time = time.time() - request_start_time
-        # Return 201 Created status
-        return jsonify(
-            message="Report submitted successfully.",
-            report=new_report.to_dict(),
-            processing_time_ms=processing_time * 1000
-            ), 201
-
-    except IntegrityError as e:
-         # This might happen if a report is submitted concurrently after checks pass
-         logger.warning(f"Database integrity error during /api/report for '{normalized_value}': {e.orig}")
-         db.session.rollback()
-         return jsonify(error="Report conflict, possibly submitted concurrently or already exists."), 409
-    except SQLAlchemyError as e:
-        logger.error(f"Database error during /api/report for '{normalized_value}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Database operation failed"), 500
-    except Exception as e:
-        logger.error(f"Unexpected error during /api/report for '{normalized_value}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Internal server error"), 500
-
-# Helper to get the latest timestamp for versioning
-def get_latest_timestamp(model_class):
-    latest_item = db.session.query(model_class).order_by(desc(model_class.added_at)).first()
-    if latest_item and latest_item.added_at:
-        # Return Unix timestamp (seconds since epoch)
-        return latest_item.added_at.timestamp()
-    return time.time() # Fallback to current time if no items or no timestamp
+# --- Blocklist Endpoints ---
 
 @app.route('/api/blocklist', methods=['GET'])
 def get_blocklist():
-    """
-    Retrieves the blocklist (domains or emails). Returns only the values.
-    Query Parameters:
-        type (str): 'domain' or 'email'. Required.
-    Returns:
-        JSON: {'items': [...], 'version': timestamp} or error.
-    """
-    request_start_time = time.time()
-    logger.info(f"Received /api/blocklist request: {request.args}")
-    item_type = request.args.get('type')
+    """Returns the blocklist items (domains or emails)."""
+    item_type = request.args.get('type', 'domain').lower() # Default to domain
+    if item_type not in ALLOWED_ITEM_TYPES:
+        return jsonify({"error": "Invalid type parameter. Use 'domain' or 'email'."}), 400
 
-    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
-        logger.warning(f"/api/blocklist: Invalid or missing 'type': {item_type}")
-        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
-
-    logger.info(f"/api/blocklist: Processing type='{item_type}'")
+    page = request.args.get('page', DEFAULT_PAGE, type=int)
+    per_page = request.args.get('per_page', DEFAULT_PER_PAGE, type=int)
 
     try:
-        items = []
-        version = time.time() # Default version to current time
+        # Query items
+        paginated_query = db.session.execute(
+            select(Blocklist.value)
+            .filter_by(item_type=item_type)
+            .order_by(Blocklist.id) # Or value?
+            .limit(per_page)
+            .offset((page - 1) * per_page)
+        )
+        items = [row[0] for row in paginated_query]
 
-        if item_type == 'domain':
-            query = select(BlockedDomain.domain_name).where(BlockedDomain.status == 'active')
-            items = db.session.execute(query).scalars().all()
-            version = get_latest_timestamp(BlockedDomain)
-        elif item_type == 'email':
-            query = select(BlockedEmail.email_address).where(BlockedEmail.status == 'active')
-            items = db.session.execute(query).scalars().all()
-            version = get_latest_timestamp(BlockedEmail)
+        # Get total count for pagination info (optional)
+        # total_count = db.session.execute(select(func.count(Blocklist.id)).filter_by(item_type=item_type)).scalar_one()
 
-        processing_time = time.time() - request_start_time
-        logger.info(f"/api/blocklist: Found {len(items)} active items for type='{item_type}'. Version: {version}")
+        # Get current version for this list type
+        data_type_key = f"blocklist_{item_type}s"
+        current_version = get_data_version(data_type_key)
 
-        # Return structure expected by background.js cache update
-        return jsonify(
-            items=items,
-            version=version, # Use latest timestamp as version
-            processing_time_ms=processing_time * 1000
-        ), 200
-
+        logger.info(f"Returning {len(items)} blocklisted {item_type}s (Version: {current_version})")
+        return jsonify({
+            "items": items,
+            "version": current_version,
+            "type": item_type,
+            # "page": page,
+            # "per_page": per_page,
+            # "total_items": total_count
+        }), 200
     except SQLAlchemyError as e:
-        logger.error(f"Database error during /api/blocklist for type='{item_type}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Database query failed"), 500
-    except Exception as e:
-        logger.error(f"Unexpected error during /api/blocklist for type='{item_type}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Internal server error"), 500
+        logger.error(f"Database error fetching blocklist ({item_type}): {e}")
+        return jsonify({"error": "Database error fetching blocklist."}), 500
 
+@app.route('/api/blocklist/add', methods=['POST'])
+def add_blocklist_item():
+    """Adds a new item to the blocklist."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing JSON payload."}), 400
+
+    item_type = data.get('type', '').lower()
+    value = data.get('value', '')
+
+    if not item_type or not value:
+        return jsonify({"error": "Missing 'type' or 'value' in payload."}), 400
+
+    success, message = add_to_list(Blocklist, item_type, value)
+
+    if success:
+        return jsonify({"message": message}), 201 # 201 Created or 200 OK if already exists
+    else:
+        return jsonify({"error": message}), 400 # Or 500 for database errors
+
+# --- Whitelist Endpoints ---
 
 @app.route('/api/whitelist', methods=['GET'])
 def get_whitelist():
-    """
-    Retrieves the whitelist (domains or emails). Returns only the values.
-    Query Parameters:
-        type (str): 'domain' or 'email'. Required.
-    Returns:
-        JSON: {'items': [...], 'version': timestamp} or error.
-    """
-    request_start_time = time.time()
-    logger.info(f"Received /api/whitelist request: {request.args}")
-    item_type = request.args.get('type')
+    """Returns the whitelist items (domains or emails)."""
+    item_type = request.args.get('type', 'domain').lower()
+    if item_type not in ALLOWED_ITEM_TYPES:
+        return jsonify({"error": "Invalid type parameter. Use 'domain' or 'email'."}), 400
 
-    if not item_type or item_type not in ALLOWED_ITEM_TYPES:
-        logger.warning(f"/api/whitelist: Invalid or missing 'type': {item_type}")
-        return jsonify(error=f"Invalid or missing 'type'. Must be one of {ALLOWED_ITEM_TYPES}."), 400
-
-    logger.info(f"/api/whitelist: Processing type='{item_type}'")
+    page = request.args.get('page', DEFAULT_PAGE, type=int)
+    per_page = request.args.get('per_page', DEFAULT_PER_PAGE, type=int)
 
     try:
-        # Use func.lower to ensure case-insensitive retrieval if needed,
-        # but storing normalized values is generally better.
-        query = select(WhitelistedItem.value).where(
-            WhitelistedItem.item_type == item_type
-        ) # No 'active' status for whitelist in this model
+        paginated_query = db.session.execute(
+            select(Whitelist.value)
+            .filter_by(item_type=item_type)
+            .order_by(Whitelist.id)
+            .limit(per_page)
+            .offset((page - 1) * per_page)
+        )
+        items = [row[0] for row in paginated_query]
 
-        items = db.session.execute(query).scalars().all()
-        version = get_latest_timestamp(WhitelistedItem) # Version based on latest whitelist addition
+        # Get current version
+        data_type_key = f"whitelist_{item_type}s"
+        current_version = get_data_version(data_type_key)
 
-        processing_time = time.time() - request_start_time
-        logger.info(f"/api/whitelist: Found {len(items)} items for type='{item_type}'. Version: {version}")
-
-        # Return structure expected by background.js cache update
-        return jsonify(
-            items=items,
-            version=version,
-            processing_time_ms=processing_time * 1000
-        ), 200
+        logger.info(f"Returning {len(items)} whitelisted {item_type}s (Version: {current_version})")
+        return jsonify({
+            "items": items,
+            "version": current_version,
+            "type": item_type,
+            # "page": page,
+            # "per_page": per_page,
+        }), 200
     except SQLAlchemyError as e:
-        logger.error(f"Database error during /api/whitelist for type='{item_type}': {e}", exc_info=True)
+        logger.error(f"Database error fetching whitelist ({item_type}): {e}")
+        return jsonify({"error": "Database error fetching whitelist."}), 500
+
+@app.route('/api/whitelist/add', methods=['POST'])
+def add_whitelist_item():
+    """Adds a new item to the whitelist."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing JSON payload."}), 400
+
+    item_type = data.get('type', '').lower()
+    value = data.get('value', '')
+
+    if not item_type or not value:
+        return jsonify({"error": "Missing 'type' or 'value' in payload."}), 400
+
+    success, message = add_to_list(Whitelist, item_type, value)
+
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
+
+# --- Check Endpoint ---
+
+@app.route('/api/check', methods=['GET'])
+def check_item():
+    """Checks if a domain or email is blocklisted, whitelisted, or safe."""
+    item_type = request.args.get('type', '').lower()
+    value = request.args.get('value', '')
+
+    # FIX: Decode URL-encoded values from query parameters
+    value = unquote(value)
+
+    if item_type not in ALLOWED_ITEM_TYPES:
+        return jsonify({"status": "error", "error": "Invalid type parameter."}), 400
+    if not value:
+        return jsonify({"status": "error", "error": "Missing value parameter."}), 400
+
+    normalized_value = None
+    if item_type == 'domain':
+        normalized_value = normalize_domain_backend(value)
+    elif item_type == 'email':
+        normalized_value = normalize_email_backend(value)
+
+    if not normalized_value:
+        logger.warning(f"Check request for invalid {item_type}: '{value}'")
+        return jsonify({"status": "error", "error": f"Invalid {item_type} format."}), 400
+
+    logger.info(f"Checking {item_type}: '{normalized_value}' (Original: '{value}')")
+
+    try:
+        # 1. Check Whitelist first
+        is_whitelisted = db.session.execute(
+            select(exists().where(Whitelist.item_type == item_type, Whitelist.value == normalized_value))
+        ).scalar()
+
+        if is_whitelisted:
+            logger.info(f"'{normalized_value}' is whitelisted.")
+            return jsonify({"status": "whitelisted", "value": normalized_value, "type": item_type}), 200
+
+        # 2. Check Blocklist
+        is_blocklisted = db.session.execute(
+            select(exists().where(Blocklist.item_type == item_type, Blocklist.value == normalized_value))
+        ).scalar()
+
+        if is_blocklisted:
+            logger.info(f"'{normalized_value}' is blocklisted.")
+            # Optionally add details about why it's blocked if available
+            return jsonify({"status": "blocked", "value": normalized_value, "type": item_type}), 200
+
+        # 3. If not in either list, it's considered safe by the lists
+        logger.info(f"'{normalized_value}' is not in blocklist or whitelist.")
+        return jsonify({"status": "safe", "value": normalized_value, "type": item_type}), 200
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error checking {item_type} '{normalized_value}': {e}")
+        # Fallback: return 'safe' on DB error? Or a specific error status?
+        # Returning 'error' is safer to indicate the check couldn't be completed reliably.
+        return jsonify({"status": "error", "error": "Database check failed."}), 500
+
+
+# --- Report Endpoint ---
+
+@app.route('/api/report', methods=['POST'])
+def report_item():
+    """Receives reports from the extension."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing JSON payload."}), 400
+
+    report_type = data.get('type', '').lower() # e.g., 'domain', 'email', 'false_positive_domain'
+    value = data.get('value', '')
+    reason = data.get('reason', '')
+    source = data.get('source', 'unknown')
+
+    # Basic validation
+    original_type = report_type.replace('false_positive_', '') # Get base type
+    if original_type not in ALLOWED_ITEM_TYPES and report_type != 'content_keyword': # Allow a new type for keyword reports
+        return jsonify({"error": f"Invalid report type: {report_type}"}), 400
+    if not value:
+        return jsonify({"error": "Missing 'value' in report payload."}), 400
+
+    # Normalize value based on original type for consistency in reports table (optional)
+    normalized_value = value
+    if original_type == 'domain':
+        normalized_value = normalize_domain_backend(value) or value # Keep original if normalization fails
+    elif original_type == 'email':
+        normalized_value = normalize_email_backend(value) or value # Keep original if normalization fails
+
+    logger.info(f"Received report: Type='{report_type}', Value='{normalized_value}', Reason='{reason}', Source='{source}'")
+
+    try:
+        new_report = Report(
+            item_type=report_type,
+            value=normalized_value, # Store normalized value
+            reason=reason,
+            source=source,
+            status='received' # Initial status
+        )
+        db.session.add(new_report)
+        db.session.commit()
+
+        logger.info(f"Report ID {new_report.id} created successfully.")
+        return jsonify({
+            "message": "Report received successfully.",
+            "status": "received",
+            "report": { # Return some details of the created report
+                "id": new_report.id,
+                "type": new_report.item_type,
+                "value": new_report.value,
+                "status": new_report.status
+            }
+        }), 201 # 201 Created
+
+    except SQLAlchemyError as e:
         db.session.rollback()
-        return jsonify(error="Database query failed"), 500
-    except Exception as e:
-        logger.error(f"Unexpected error during /api/whitelist for type='{item_type}': {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify(error="Internal server error"), 500
+        logger.error(f"Database error saving report for '{normalized_value}': {e}")
+        return jsonify({"error": "Failed to save report due to database error."}), 500
 
 
 # --- Database Initialization ---
-def initialize_database():
-    """Checks if tables exist and creates them if they don't."""
-    logger.info("Initializing database connection and checking tables...")
-    max_retries = 5
-    retry_delay = 5 # seconds
-    for attempt in range(max_retries):
-        try:
-            # Test connection implicitly by getting inspector
-            inspector = inspect(db.engine)
-            existing_tables = inspector.get_table_names()
-            logger.info(f"Database connection successful. Existing tables: {existing_tables}")
+def init_db():
+    """Initializes the database and creates tables if they don't exist."""
+    with app.app_context():
+        logger.info("Checking database tables...")
+        inspector = inspect(db.engine)
+        required_tables = [Blocklist.__tablename__, Whitelist.__tablename__, Report.__tablename__, DataVersion.__tablename__]
 
-            required_tables = [
-                BlockedDomain.__tablename__,
-                BlockedEmail.__tablename__,
-                ReportedItem.__tablename__,
-                WhitelistedItem.__tablename__
-            ]
-            missing_tables = [tbl for tbl in required_tables if tbl not in existing_tables]
+        existing_tables = inspector.get_table_names()
+        tables_to_create = [table for table in required_tables if table not in existing_tables]
 
-            if missing_tables:
-                logger.info(f"Creating missing tables: {missing_tables}")
-                # Create only the missing tables
-                db.metadata.create_all(bind=db.engine, tables=[
-                    db.metadata.tables[tbl] for tbl in missing_tables
-                ])
-                logger.info("Database tables created successfully.")
-            else:
-                logger.info("All required database tables already exist.")
-            return # Success
-        except SQLAlchemyError as e:
-            logger.error(f"Database connection/initialization error (Attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-            else:
-                logger.critical("CRITICAL: Database initialization failed after multiple retries.")
-                # sys.exit(1) # Exit if DB connection fails critically after retries
-                raise # Re-raise the last exception
-        except Exception as e:
-            logger.critical(f"CRITICAL: Unexpected error during database initialization: {e}", exc_info=True)
-            # sys.exit(1) # Exit on unexpected critical error
-            raise
+        if tables_to_create:
+            logger.info(f"Creating missing tables: {', '.join(tables_to_create)}")
+            # db.create_all() # This might try to create existing ones too depending on context
+            # Create only the missing tables
+            db.metadata.create_all(bind=db.engine, tables=[db.metadata.tables[name] for name in tables_to_create])
+            logger.info("Database tables created/verified.")
+        else:
+            logger.info("All required database tables already exist.")
+
+        # Optional: Seed initial data or versions if needed
+        # Example: Ensure version records exist
+        for list_type in ['blocklist', 'whitelist']:
+            for item_type in ALLOWED_ITEM_TYPES:
+                 data_type_key = f"{list_type}_{item_type}s"
+                 if get_data_version(data_type_key) == "0": # If version doesn't exist
+                      update_data_version(data_type_key) # Create initial version
+
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    # Initialize DB within app context AFTER app is created but BEFORE running
-    with app.app_context():
-        initialize_database()
-
-    # Use PORT environment variable provided by Render/Heroku, default to 5001 for local dev
-    port = int(os.environ.get("PORT", 5001))
-    # Use debug=False for production/Render deployment
-    # Use debug=True only for local development (enables auto-reload)
-    debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-
-    logger.info(f"Starting Flask server on http://0.0.0.0:{port} (Debug: {debug_mode})")
-    # Use waitress or gunicorn for production deployments instead of app.run()
-    # For Render, Procfile usually handles this (e.g., using gunicorn)
-    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+    init_db() # Initialize DB before starting the server
+    logger.info(f"Starting Flask server for Phishing Guard Local API on port 5001...")
+    # CHANGE: Run on 0.0.0.0 to be accessible from the extension (even locally)
+    # Use port 5001 as specified in the original background script default URL
+    app.run(host='0.0.0.0', port=5001, debug=True) # Enable debug for development
