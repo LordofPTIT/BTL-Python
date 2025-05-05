@@ -5,6 +5,8 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, unquote # Added unquote
+
+import logger
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -37,6 +39,12 @@ CORS(app, resources={r"/api/*": {"origins": "chrome-extension://*"}}) # Be more 
 db = SQLAlchemy(app)
 # Optional: Initialize Flask-Migrate
 # migrate = Migrate(app, db)
+
+# --- Create Tables ---
+# Thêm đoạn này: Đảm bảo các bảng được tạo trong context của ứng dụng
+with app.app_context():
+    db.create_all()
+    logger.info("Database tables checked/created.")
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
