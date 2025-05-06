@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "VN Phishing Guard Pro (Local SQLite)",
-  "version": "2.5.0",
-  "description": "Phát hiện trang web, email lừa đảo với DB SQLite cục bộ, quét từ khóa và popup cảnh báo không chặn.",
+  "version": "2.6.0",
+  "description": "Phát hiện trang web, email lừa đảo với DB SQLite cục bộ, quét từ khóa, báo cáo người dùng và popup cảnh báo không chặn.",
   "permissions": [
     "storage",
     "tabs",
     "scripting",
     "alarms",
     "notifications",
-    "webRequest"
+    "webRequest",
+    "contextMenus"
   ],
   "host_permissions": [
     "*://*/*"
@@ -45,10 +46,16 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "options_page": "options/options.html",
   "web_accessible_resources": [
     {
-      "resources": ["warning_popup.html", "warning_popup.js", "styles/warning_popup.css", "icons/*"],
+      "resources": [
+        "warning/warning.html",
+        "warning/warning.css",
+        "warning/warning.js",
+        "icons/icon-48.png",
+        "data/CLDBllacklist.txt",
+        "data/phishing_keywords_vn.json"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

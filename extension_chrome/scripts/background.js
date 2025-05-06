@@ -1,302 +1,378 @@
-/* global chrome */
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5000/api';
-const DEFAULT_CACHE_UPDATE_INTERVAL_MINUTES = 60;
-const MIN_CACHE_UPDATE_INTERVAL_MINUTES = 5;
-const MAX_CACHE_UPDATE_INTERVAL_MINUTES = 1440;
-const CACHE_KEYS = {
-    PHISHING_DOMAINS: 'phishingDomainsCache', PHISHING_EMAILS: 'phishingEmailsCache',
-    WHITELISTED_DOMAINS: 'whitelistedDomainsCache', WHITELISTED_EMAILS: 'whitelistedEmailsCache',
-    API_BASE_URL: 'apiBaseUrl', CACHE_UPDATE_INTERVAL: 'cacheUpdateIntervalMinutes',
-    TEMP_ALLOWED_DOMAINS: 'tempAllowedDomainsSession'
-};
-const ALARM_NAME = 'phishingUpdateAlarm';
-const SUSPICIOUS_EMAIL_KEYWORDS = [
-    'xác minh tài khoản', 'verify your account', 'cập nhật thông tin', 'update your information','mật khẩu', 'password', 'đăng nhập', 'login', 'locked', 'khóa', 'restricted', 'hạn chế','ngân hàng', 'bank', 'thẻ tín dụng', 'credit card', 'số an sinh xã hội', 'ssn','khẩn cấp', 'urgent', 'quan trọng', 'important', 'hành động ngay', 'action required','truy cập bị hạn chế', 'access restricted', 'vấn đề bảo mật', 'security issue','thừa kế', 'inheritance', 'trúng thưởng', 'prize', 'xổ số', 'lottery', 'miễn phí', 'free offer','nhấp vào đây', 'click here', 'liên kết', 'link', 'tải xuống', 'download','hóa đơn', 'invoice', 'thanh toán', 'payment due', 'refund', 'hoàn tiền','yêu cầu đăng nhập', 'login required', 'xác thực', 'authenticate', 'secure message','tài khoản của bạn gặp rủi ro', 'your account is at risk'
+const API_BASE_URL = 'http://127.0.0.1:5000';
+let currentPhishingUrl = null;
+let currentTabId = null;
+
+const PHISHING_KEYWORDS_VN_DEFAULT = [
+    "xác minh tài khoản", "đăng nhập khẩn cấp", "tài khoản của bạn đã bị khóa",
+    "thông tin tài khoản", "cập nhật thông tin", "khẩn cấp", "quan trọng",
+    "mật khẩu của bạn đã hết hạn", "quà tặng miễn phí", "trúng thưởng", "ưu đãi đặc biệt",
+    "nhấp vào đây", "liên kết này", "yêu cầu thanh toán", "hóa đơn chưa thanh toán",
+    "ngân hàng", "vietcombank", "techcombank", "agribank", "bidv", "sacombank", "vpbank",
+    "momo", "zalopay", "cảnh báo bảo mật", "hoạt động đáng ngờ", "phiên đăng nhập lạ",
+    "ủy quyền", "xác thực", "mã OTP", "giao dịch đang chờ xử lý", "hỗ trợ khách hàng",
+    "chính phủ", "thuế", "bảo hiểm xã hội", "công an", "thông báo từ cơ quan nhà nước",
+    "apple", "microsoft", "google", "facebook", "amazon", "paypal", "netflix", "lazada", "shopee", "tiki",
+    "thừa kế", "triệu phú", "đầu tư lợi nhuận cao", "cơ hội việc làm", "làm việc tại nhà lương cao",
+    "urgent", "verify your account", "account locked", "update your details", "password expired",
+    "free gift", "you have won", "special offer", "click here", "payment request", "unpaid invoice",
+    "security alert", "suspicious activity", "unusual sign-in", "confirm your identity",
+    "chúng tôi phát hiện", "hoạt động bất thường", "yêu cầu thông tin cá nhân", "cung cấp ngay",
+    "số thẻ tín dụng", "mã bảo mật CVV", "thông tin đăng nhập", "tên người dùng và mật khẩu",
+    "thông báo trúng thưởng lớn", "bạn là người may mắn", "giải thưởng giá trị cao",
+    "đòi tiền chuộc", "dữ liệu của bạn đã bị mã hóa", "thanh toán để giải mã"
 ];
-const MIN_KEYWORD_MATCHES_FOR_WARNING = 2;
 
-let currentApiBaseUrl = DEFAULT_API_BASE_URL;
-let currentCacheUpdateIntervalMinutes = DEFAULT_CACHE_UPDATE_INTERVAL_MINUTES;
-let memoryCache = {
-    phishingDomains: new Set(), phishingEmails: new Set(),
-    whitelistedDomains: new Set(), whitelistedEmails: new Set(),
-    lastUpdated: { phishingDomains: 0, phishingEmails: 0, whitelistedDomains: 0, whitelistedEmails: 0 },
-    version: { phishingDomains: null, phishingEmails: null, whitelistedDomains: null, whitelistedEmails: null }
-};
-
-async function initialize() {
-    console.log("BG: Initializing...");
-    try {
-        await loadSettings(); await loadInitialCache(); setupAlarms(); setupListeners(); await clearExpiredTempAllows();
-        setTimeout(updateAllCaches, 2000); // Cập nhật cache sớm hơn một chút
-        console.log("BG: Initialization complete.");
-    } catch (error) { console.error("BG: CRITICAL - Initialization failed:", error); }
+async function initializeDatabaseAndKeywords() {
+    await updateLocalABPBlacklist();
+    await loadAndStoreKeywords();
 }
 
-async function loadSettings() {
-    try {
-        const settings = await chrome.storage.sync.get([CACHE_KEYS.API_BASE_URL, CACHE_KEYS.CACHE_UPDATE_INTERVAL]);
-        currentApiBaseUrl = settings[CACHE_KEYS.API_BASE_URL] || DEFAULT_API_BASE_URL;
-        currentCacheUpdateIntervalMinutes = settings[CACHE_KEYS.CACHE_UPDATE_INTERVAL] || DEFAULT_CACHE_UPDATE_INTERVAL_MINUTES;
-    } catch (error) { console.error("BG: Error loading settings:", error); currentApiBaseUrl = DEFAULT_API_BASE_URL; currentCacheUpdateIntervalMinutes = DEFAULT_CACHE_UPDATE_INTERVAL_MINUTES; }
-}
+chrome.runtime.onInstalled.addListener(() => {
+    console.log("VN Phishing Guard Pro installed/updated.");
+    initializeDatabaseAndKeywords();
+    schedulePeriodicUpdates();
 
-async function loadInitialCache() {
-    const cacheTypes = ['phishingDomains', 'phishingEmails', 'whitelistedDomains', 'whitelistedEmails'];
-    for (const type of cacheTypes) {
-        const storageKey = CACHE_KEYS[type.replace(/([A-Z])/g, '_$1').toUpperCase()];
-        try {
-            const result = await chrome.storage.local.get(storageKey);
-            if (result?.[storageKey]?.items && Array.isArray(result[storageKey].items)) {
-                memoryCache[type] = new Set(result[storageKey].items);
-                memoryCache.lastUpdated[type] = result[storageKey].timestamp || 0;
-                memoryCache.version[type] = result[storageKey].version || null;
-                 console.log(`BG: Loaded ${memoryCache[type].size} items into ${type}`);
-            } else { memoryCache[type] = new Set(); memoryCache.lastUpdated[type] = 0; memoryCache.version[type] = null; }
-        } catch (error) { console.error(`BG: Error loading cache ${storageKey}:`, error); memoryCache[type] = new Set(); }
-    }
-}
-
-function setupAlarms() {
-    const interval = Math.max(MIN_CACHE_UPDATE_INTERVAL_MINUTES, Math.min(currentCacheUpdateIntervalMinutes, MAX_CACHE_UPDATE_INTERVAL_MINUTES));
-    chrome.alarms.create(ALARM_NAME, { periodInMinutes: interval });
-    if (chrome.alarms.onAlarm.hasListener(handleAlarm)) { chrome.alarms.onAlarm.removeListener(handleAlarm); } // Tránh listener trùng lặp
-    chrome.alarms.onAlarm.addListener(handleAlarm);
-}
-
-function handleAlarm(alarm) {
-    if (alarm.name === ALARM_NAME) updateAllCaches().catch(e => console.error("BG: Error in scheduled cache update:", e));
-}
-
-function setupListeners() {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        const action = message.action;
-        if (action === 'checkDomain') { checkPhishing('domain', message.domain).then(sendResponse).catch(e => sendResponse({ isPhishing: false, status: 'error', reason: 'Lỗi kiểm tra' })); return true; }
-        if (action === 'checkEmailDetails') { handleCheckEmailDetails(message.senderEmail, message.emailContent, message.emailSubject).then(sendResponse).catch(e => sendResponse({ isPhishing: false, status: 'error', reason: 'Lỗi kiểm tra nội dung' })); return true; }
-        if (action === 'reportItem') { reportItem(message.type, message.value, message.reason, message.context).then(sendResponse).catch(e => sendResponse({ success: false, message: 'Lỗi gửi báo cáo' })); return true; }
-        if (action === 'settingsUpdated') { loadSettings().then(() => { setupAlarms(); updateAllCaches(); }); }
-        if (action === 'addTemporaryAllowDomain') { addTemporaryAllow(message.domain).then(() => sendResponse({success: true})).catch(e => sendResponse({success: false, error: e.message})); return true; }
-        return false;
+    chrome.contextMenus.create({
+        id: "reportSelectedText",
+        title: "Báo cáo là Phishing/Độc hại",
+        contexts: ["selection"]
     });
+});
 
-    if (chrome.webRequest?.onBeforeRequest) {
-        if (chrome.webRequest.onBeforeRequest.hasListener(handleWebRequest)) { chrome.webRequest.onBeforeRequest.removeListener(handleWebRequest); } // Tránh listener trùng lặp
-        chrome.webRequest.onBeforeRequest.addListener(handleWebRequest, { urls: ["<all_urls>"], types: ["main_frame"] });
-    } else { console.error("BG: chrome.webRequest API not available."); }
+chrome.runtime.onStartup.addListener(() => {
+    console.log("VN Phishing Guard Pro started.");
+    initializeDatabaseAndKeywords();
+    schedulePeriodicUpdates();
+});
+
+function schedulePeriodicUpdates() {
+    chrome.alarms.create('periodicUpdate', { periodInMinutes: 60 }); // Update every 60 minutes
 }
 
-async function handleWebRequest(details) {
-    // Bỏ qua nếu là yêu cầu từ chính extension hoặc không phải http/https
-    if ((details.initiator && details.initiator.startsWith(`chrome-extension://${chrome.runtime.id}`)) || !details.url?.startsWith('http')) return;
-
-    const domain = normalizeDomain(details.url);
-    if (!domain) return;
-
-    const isTempAllowed = await checkTemporaryAllow(domain);
-    if (isTempAllowed) { console.log(`BG: Temp allow for ${domain}. Skipping check.`); return; }
-
-    if (memoryCache.whitelistedDomains.has(domain)) { console.log(`BG: Whitelisted domain ${domain}. Skipping check.`); return; }
-
-    // Kiểm tra cache trước
-    if (memoryCache.phishingDomains.has(domain)) {
-        console.warn(`BG: Phishing domain DETECTED (cache): ${domain}`);
-        injectWarningScript(details.tabId, 'domain', domain, details.url, "Trang web này nằm trong danh sách chặn đã biết (cache).");
-        return; // Không chặn, chỉ cảnh báo
+chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === 'periodicUpdate') {
+        console.log("Performing periodic update of local lists...");
+        updateLocalABPBlacklist();
+        loadAndStoreKeywords();
     }
+});
 
-    // Nếu không có trong cache, kiểm tra API (không đồng bộ)
-    // Điều này có thể không hiển thị cảnh báo cho lần truy cập *đầu tiên* nếu cache cũ,
-    // nhưng sẽ cập nhật cache cho lần sau và tránh làm chậm điều hướng.
-    checkPhishing('domain', domain).then(result => {
-         if(result.isPhishing && !memoryCache.phishingDomains.has(domain)) { // Chỉ cảnh báo nếu API tìm thấy và chưa có trong cache
-              console.warn(`BG: Phishing domain DETECTED (API): ${domain}`);
-              // Cần lấy lại tabId vì hàm này chạy bất đồng bộ. Sử dụng details.tabId có thể không còn chính xác
-              // nếu tab đã thay đổi. Cách tốt hơn là query tab hiện tại dựa trên URL nếu cần.
-              // Tuy nhiên, để đơn giản, ta vẫn dùng details.tabId nhưng có thể không đáng tin cậy 100%.
-              injectWarningScript(details.tabId, 'domain', domain, details.url, `Trang web này bị chặn bởi API (${result.reason || ''}).`);
-         }
-    }).catch(e => console.error(`BG: фоновая проверка API для ${domain} не удалась:`, e));
-}
-
-function injectWarningScript(tabId, type, item, fullUrl, reason) {
-    chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        files: ['scripts/show_warning_popup.js']
-    }).then(() => {
-        setTimeout(() => { // Đảm bảo script đã inject
-            chrome.tabs.sendMessage(tabId, {
-                 action: 'showPhishingWarningPopup', type: type, blockedItem: item, fullUrl: fullUrl, reason: reason
-            }).catch(e => { /* Lỗi gửi tin nhắn có thể xảy ra nếu tab đóng nhanh */ });
-        }, 150);
-    }).catch(e => console.error(`BG: Failed to inject script into tab ${tabId}:`, e));
-}
-
-
-async function addTemporaryAllow(domain) {
-    if (!domain) return; const normalizedDomain = normalizeDomain(domain); if (!normalizedDomain) return;
-    const expiryTime = Date.now() + (30 * 60 * 1000);
+async function loadAndStoreKeywords() {
     try {
-        const data = await chrome.storage.session.get(CACHE_KEYS.TEMP_ALLOWED_DOMAINS);
-        const allows = data[CACHE_KEYS.TEMP_ALLOWED_DOMAINS] || {}; allows[normalizedDomain] = expiryTime;
-        await chrome.storage.session.set({ [CACHE_KEYS.TEMP_ALLOWED_DOMAINS]: allows });
-    } catch (error) { console.error(`BG: Failed save temp allow ${normalizedDomain}:`, error); throw error; }
-}
-
-async function checkTemporaryAllow(domain) {
-    if (!domain) return false; const normalizedDomain = normalizeDomain(domain); if (!normalizedDomain) return false;
-    try {
-        const data = await chrome.storage.session.get(CACHE_KEYS.TEMP_ALLOWED_DOMAINS); const allows = data[CACHE_KEYS.TEMP_ALLOWED_DOMAINS] || {};
-        const expiryTime = allows[normalizedDomain];
-        if (expiryTime && Date.now() < expiryTime) return true;
-        if (expiryTime) { delete allows[normalizedDomain]; await chrome.storage.session.set({ [CACHE_KEYS.TEMP_ALLOWED_DOMAINS]: allows }); }
-        return false;
-    } catch (error) { console.error(`BG: Failed check temp allow ${normalizedDomain}:`, error); return false; }
-}
-
-async function clearExpiredTempAllows() {
-     try {
-        const data = await chrome.storage.session.get(CACHE_KEYS.TEMP_ALLOWED_DOMAINS); let allows = data[CACHE_KEYS.TEMP_ALLOWED_DOMAINS] || {};
-        const now = Date.now(); let changed = false;
-        for (const domain in allows) { if (allows[domain] < now) { delete allows[domain]; changed = true; } }
-        if (changed) await chrome.storage.session.set({ [CACHE_KEYS.TEMP_ALLOWED_DOMAINS]: allows });
-     } catch (error) { console.error("BG: Error clearing expired temp allows:", error); }
-}
-
-function normalizeDomain(url) {
-    if (!url || typeof url !== 'string') return null;
-    try {
-        let hostname = url; if (url.includes('://') || url.startsWith('//')) { hostname = new URL(url.startsWith('//') ? 'http:' + url : url).hostname; }
-        hostname = hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '').trim();
-        if (!hostname || !hostname.includes('.') || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return null;
-        return hostname;
-    } catch (e) { return null; }
-}
-
-function normalizeEmail(email) {
-   if (!email || typeof email !== 'string') return null;
-   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-   const normalized = email.toLowerCase().trim(); return emailRegex.test(normalized) ? normalized : null;
-}
-
-function scanTextForKeywords(text, subject = '') {
-    if (!text && !subject) return { hasSuspiciousKeywords: false, keywordsFound: [] };
-    const combinedText = ((text || '') + ' ' + (subject || '')).toLowerCase();
-    const foundKeywords = SUSPICIOUS_EMAIL_KEYWORDS.filter(keyword => combinedText.includes(keyword.toLowerCase()));
-    return { hasSuspiciousKeywords: foundKeywords.length >= MIN_KEYWORD_MATCHES_FOR_WARNING, keywordsFound: foundKeywords };
-}
-
-async function handleCheckEmailDetails(senderEmail, emailContent, emailSubject) {
-    const normalizedSender = normalizeEmail(senderEmail);
-    let senderResult = { isPhishing: false, status: 'safe', reason: 'N/A' };
-    if (normalizedSender) { senderResult = await checkPhishing('email', normalizedSender); }
-    else { senderResult = { isPhishing: false, status: 'invalid', reason: 'Invalid sender' }; }
-
-    const contentResult = scanTextForKeywords(emailContent, emailSubject);
-    const overallPhishing = senderResult.isPhishing || contentResult.hasSuspiciousKeywords;
-    let overallReason = "";
-    if (senderResult.isPhishing) overallReason += senderResult.reason;
-    if (contentResult.hasSuspiciousKeywords) overallReason += (overallReason ? '; ' : '') + `Nội dung/tiêu đề chứa (${contentResult.keywordsFound.slice(0,2).join(', ')}...).`;
-    if (!overallReason && overallPhishing) overallReason = "Email có dấu hiệu đáng ngờ."; // Fallback
-
-    return { isPhishing: overallPhishing, senderStatus: senderResult.status, senderReason: senderResult.reason, contentScan: contentResult };
-}
-
-async function fetchApiData(endpoint) {
-    const urlPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`; const url = `${currentApiBaseUrl}${urlPath}`;
-    console.log(`BG: Fetching: ${url}`);
-    try {
-        const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }});
-        if (!response.ok) {
-            let errorBody = await response.text(); let errorMsg = `HTTP ${response.status}`;
-            try { errorMsg = JSON.parse(errorBody)?.error || errorMsg; } catch(e){}
-            console.error(`BG: API fail ${url}. Status: ${response.status}. Body: ${errorBody}`);
-            throw new Error(errorMsg);
+        const response = await fetch(chrome.runtime.getURL('data/phishing_keywords_vn.json'));
+        if (response.ok) {
+            const keywords = await response.json();
+            await chrome.storage.local.set({ localKeywords: keywords });
+            console.log("Phishing keywords loaded and stored from JSON.");
+        } else {
+            await chrome.storage.local.set({ localKeywords: PHISHING_KEYWORDS_VN_DEFAULT });
+            console.warn("Failed to load keywords from JSON, using default list.");
         }
-        const data = await response.json();
-        if (typeof data !== 'object' || data === null) throw new Error('API response not object.');
-        if ((urlPath.includes('/list')) && (!Array.isArray(data.items) || typeof data.version === 'undefined')) throw new Error('Invalid list API struct.');
-        if (urlPath.includes('/check') && typeof data.status === 'undefined') throw new Error('Invalid check API struct.');
-        return data;
     } catch (error) {
-        if (error.message.includes('fetch')) {
-            console.error(`BG: Network error fetch ${url}. Backend running at ${currentApiBaseUrl}?`, error);
-            throw new Error(`Không thể kết nối tới máy chủ cục bộ (${currentApiBaseUrl}). Hãy đảm bảo nó đang chạy.`);
-        }
-        throw error;
+        console.error("Error fetching or storing keywords, using default list:", error);
+        await chrome.storage.local.set({ localKeywords: PHISHING_KEYWORDS_VN_DEFAULT });
     }
 }
 
-async function updateCacheFromAPI(listType, itemType) {
-    const memoryKey = `${listType}${itemType.charAt(0).toUpperCase() + itemType.slice(1)}s`;
-    const storageKey = CACHE_KEYS[`${listType.toUpperCase()}_${itemType.toUpperCase()}S`];
-    const endpoint = `/${listType}?type=${itemType}`;
-    try {
-        const apiData = await fetchApiData(endpoint);
-        if (!Array.isArray(apiData.items)) throw new Error(`Invalid items for ${memoryKey}.`);
-        const currentVersion = memoryCache.version[memoryKey]; const newVersion = apiData.version;
-        if (newVersion !== null && newVersion !== undefined && newVersion === currentVersion) {
-            if (memoryCache.lastUpdated[memoryKey] === 0) {
-                 memoryCache.lastUpdated[memoryKey] = Date.now();
-                 await chrome.storage.local.set({ [storageKey]: { items: Array.from(memoryCache[memoryKey]), timestamp: Date.now(), version: newVersion }});
+
+function parseABPList(text) {
+    const lines = text.split(/\r?\n/);
+    const rules = [];
+    for (const line of lines) {
+        if (line.startsWith('!') || line.startsWith('#') || line.trim() === '') continue;
+
+        let ruleString = line;
+        if (ruleString.startsWith('||')) {
+            ruleString = ruleString.substring(2);
+        }
+
+        const caratIndex = ruleString.indexOf('^');
+        if (caratIndex !== -1) ruleString = ruleString.substring(0, caratIndex);
+
+        const dollarIndex = ruleString.indexOf('$');
+        if (dollarIndex !== -1) ruleString = ruleString.substring(0, dollarIndex);
+
+        ruleString = ruleString.toLowerCase();
+
+        const slashIndex = ruleString.indexOf('/');
+        let domainPart = ruleString;
+        let pathPattern = null;
+
+        if (slashIndex !== -1) {
+            domainPart = ruleString.substring(0, slashIndex);
+            pathPattern = ruleString.substring(slashIndex);
+            if (pathPattern.endsWith('/')) {
+                pathPattern = pathPattern.slice(0, -1);
             }
+        } else {
+            if (ruleString.endsWith('/')) {
+                domainPart = ruleString.slice(0, -1);
+            }
+        }
+
+        if (domainPart) {
+            if (pathPattern && pathPattern !== "/") { // Ensure path is not just "/" alone unless intended
+                rules.push({ domain: domainPart, path: pathPattern, original: line });
+            } else {
+                rules.push({ domain: domainPart, path: null, original: line });
+            }
+        }
+    }
+    return rules;
+}
+
+async function updateLocalABPBlacklist() {
+    try {
+        const response = await fetch(chrome.runtime.getURL('data/CLDBllacklist.txt'));
+        const text = await response.text();
+        const parsedRules = parseABPList(text);
+        await chrome.storage.local.set({ localBlacklistABPRules: parsedRules, lastABPUpdate: Date.now() });
+        console.log("Local ABP blacklist rules updated and stored.", parsedRules.length, "rules processed.");
+    } catch (error) {
+        console.error("Error fetching or parsing local ABP blacklist:", error);
+    }
+}
+
+
+function isUrlInParsedList(currentUrlString, parsedRules) {
+    if (!parsedRules || parsedRules.length === 0) return false;
+    try {
+        const currentUrl = new URL(currentUrlString);
+        const currentHostname = currentUrl.hostname.toLowerCase().replace(/^www\./, '');
+        const currentPath = currentUrl.pathname.toLowerCase();
+
+        for (const rule of parsedRules) {
+            const isExactDomainMatch = currentHostname === rule.domain;
+            const isSubdomainMatch = currentHostname.endsWith('.' + rule.domain);
+
+            if (!isExactDomainMatch && !isSubdomainMatch) {
+                continue;
+            }
+
+            if (rule.path) {
+                if (currentPath.startsWith(rule.path)) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+    } catch (e) {
+        console.error("Error in isUrlInParsedList:", currentUrlString, e);
+    }
+    return false;
+}
+
+async function loadAndCheckUrlWithLocalDB(tabId, url) {
+    if (!url || (!url.startsWith('http:') && !url.startsWith('https:'))) {
+        return;
+    }
+    try {
+        const { localBlacklistABPRules } = await chrome.storage.local.get('localBlacklistABPRules');
+        if (isUrlInParsedList(url, localBlacklistABPRules)) {
+            console.log("URL matched in local ABP blacklist:", url);
+            showCustomNotificationOrWarningPage(tabId, url, "Local Blocklist", "Trang web này nằm trong danh sách chặn cục bộ (ABP).");
+            return true; // Indicates a match
+        }
+    } catch (error) {
+        console.error("Error checking URL with local ABP blacklist:", error);
+    }
+    return false; // No match or error
+}
+
+
+async function checkUrlWithBackend(tabId, urlString) {
+    if (!urlString || (!urlString.startsWith('http:') && !urlString.startsWith('https:'))) {
+        return;
+    }
+
+    try {
+        const urlObj = new URL(urlString);
+        const domain = urlObj.hostname;
+
+        const response = await fetch(`${API_BASE_URL}/check?type=domain&value=${encodeURIComponent(domain)}`);
+        if (!response.ok) {
+            console.error(`Backend check failed for ${domain}: ${response.status}`);
             return;
         }
-        const oldSize = memoryCache[memoryKey]?.size ?? 0;
-        memoryCache[memoryKey] = new Set(apiData.items);
-        memoryCache.lastUpdated[memoryKey] = Date.now();
-        memoryCache.version[memoryKey] = newVersion;
-        await chrome.storage.local.set({ [storageKey]: { items: apiData.items, timestamp: Date.now(), version: newVersion }});
-        console.log(`BG: Updated ${memoryKey}. Ver: ${newVersion}. Size: ${oldSize} -> ${apiData.items.length}.`);
-    } catch (error) { console.error(`BG: CRITICAL - Failed update ${memoryKey} cache (${endpoint}). Error:`, error.message); }
-}
+        const data = await response.json();
 
-async function updateAllCaches() {
-    console.log("BG: Starting cache update...");
-    await Promise.allSettled([
-        updateCacheFromAPI('blocklist', 'domain'), updateCacheFromAPI('blocklist', 'email'),
-        updateCacheFromAPI('whitelist', 'domain'), updateCacheFromAPI('whitelist', 'email')
-    ]);
-    console.log("BG: Cache update process finished.");
-}
-
-async function checkPhishing(type, value) {
-    const normalizedValue = type === 'domain' ? normalizeDomain(value) : normalizeEmail(value);
-    if (!normalizedValue) return { isPhishing: false, status: 'invalid', reason: "Invalid value", source: 'local' };
-    const wKey = `whitelisted${type.charAt(0).toUpperCase() + type.slice(1)}s`;
-    const pKey = `phishing${type.charAt(0).toUpperCase() + type.slice(1)}s`;
-    if (memoryCache[wKey]?.has(normalizedValue)) return { isPhishing: false, status: 'whitelisted', reason: "Whitelisted (cache)", source: 'cache' };
-    if (memoryCache[pKey]?.has(normalizedValue)) return { isPhishing: true, status: 'blocked', reason: "Blocklisted (cache)", source: 'cache' };
-
-    try {
-        const responseData = await fetchApiData(`/check?type=${type}&value=${encodeURIComponent(normalizedValue)}`);
-        if (responseData.status === 'blocked' && !memoryCache[pKey]?.has(normalizedValue)) { updateCacheFromAPI('blocklist', type).catch(e => {}); }
-        else if (responseData.status === 'whitelisted' && !memoryCache[wKey]?.has(normalizedValue)) { updateCacheFromAPI('whitelist', type).catch(e => {}); }
-        return { isPhishing: responseData.status === 'blocked', status: responseData.status, reason: `API check (${responseData.status})`, source: 'api', details: responseData.details };
-    } catch (error) { console.error(`BG: API check fail ${type} '${normalizedValue}':`, error.message); return { isPhishing: false, status: 'error', reason: `API Error: ${error.message}`, source: 'api_error' }; }
-}
-
-async function reportItem(reportType, value, reason = '', context = '') {
-    let apiType = reportType.replace('false_positive_', '');
-    let apiValue = (apiType === 'domain' ? normalizeDomain(value) : normalizeEmail(value)) || value; // Normalize or keep original if fail
-    if (!apiValue) return { success: false, message: `Invalid ${apiType} value.` };
-    let apiReason = reportType.startsWith('false_positive_') ? `False Positive: ${reason || value}. Ctx: ${context}` : reason;
-
-    try {
-        const response = await fetch(`${currentApiBaseUrl}/report`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ type: reportType, value: apiValue, reason: apiReason, source: 'chrome_extension' })
-        });
-        const responseData = await response.json();
-        if (!response.ok) throw new Error(responseData.error || `API Error ${response.status}`);
-
-         if (!reportType.startsWith('false_positive_') && ['domain', 'email'].includes(apiType)) {
-              updateCacheFromAPI('blocklist', apiType).catch(e => {});
-         }
-        return { success: true, ...responseData };
+        if (data.status === 'blocked') {
+            console.log(`Domain ${domain} is BLOCKED by backend. Reason: ${data.reason}`);
+            showCustomNotificationOrWarningPage(tabId, urlString, "Backend Blocklist", `Tên miền ${domain} bị chặn bởi máy chủ. Lý do: ${data.reason || 'Nằm trong danh sách nguy hiểm.'}`);
+            return true;
+        } else if (data.status === 'whitelisted') {
+            console.log(`Domain ${domain} is whitelisted by backend.`);
+        } else {
+            console.log(`Domain ${domain} is SAFE according to backend.`);
+        }
     } catch (error) {
-        let errMsg = error.message.includes('fetch') ? `Network error sending report. Is backend running?` : `Report error: ${error.message}`;
-        return { success: false, message: errMsg };
+        console.error(`Error checking URL ${urlString} with backend:`, error);
     }
+    return false;
 }
 
-initialize();
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.url && tab.active) {
+        currentPhishingUrl = changeInfo.url;
+        currentTabId = tabId;
+        console.log(`Navigating to: ${changeInfo.url}`);
+        if (await loadAndCheckUrlWithLocalDB(tabId, changeInfo.url)) return;
+        await checkUrlWithBackend(tabId, changeInfo.url);
+    }
+});
+
+chrome.webNavigation.onCommitted.addListener(async (details) => {
+    if (details.frameId === 0 && details.url && (details.url.startsWith('http:') || details.url.startsWith('https:'))) {
+        currentPhishingUrl = details.url;
+        currentTabId = details.tabId;
+        // This check might be redundant if onUpdated also fires reliably, but good for safety.
+        // Prioritize onUpdated if it works well, to avoid double checks.
+        // console.log(`WebNavigation committed: ${details.url}`);
+        // if (await loadAndCheckUrlWithLocalDB(details.tabId, details.url)) return;
+        // await checkUrlWithBackend(details.tabId, details.url);
+    }
+});
+
+
+function showCustomNotificationOrWarningPage(tabId, url, listName, reason) {
+    currentPhishingUrl = url;
+    currentTabId = tabId;
+
+    chrome.storage.local.get(['warningType', 'autoRedirectPrevention'], async (settings) => {
+        const warningType = settings.warningType || 'warning_page';
+
+        if (warningType === 'notification') {
+            chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icons/icon-128.png',
+                title: 'Cảnh Báo Phishing!',
+                message: `Trang web ${url} có dấu hiệu lừa đảo (${listName}). Lý do: ${reason}`,
+                priority: 2,
+                buttons: [{ title: 'Tới trang cảnh báo' }]
+            });
+        } else {
+             const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
+                                   `?url=${encodeURIComponent(url)}&listName=${encodeURIComponent(listName)}&reason=${encodeURIComponent(reason)}`;
+            chrome.tabs.update(tabId, { url: warningPageUrl });
+        }
+    });
+}
+
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+    if (buttonIndex === 0 && currentPhishingUrl && currentTabId) { // Assuming first button is "Go to warning page"
+        const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
+                               `?url=${encodeURIComponent(currentPhishingUrl)}&listName=${encodeURIComponent("Notification Clicked")}&reason=${encodeURIComponent("User clicked notification to see details.")}`;
+        chrome.tabs.update(currentTabId, { url: warningPageUrl });
+    }
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "getCurrentPhishingUrl") {
+        sendResponse({ url: currentPhishingUrl, tabId: currentTabId });
+    } else if (request.action === "getKeywords") {
+        chrome.storage.local.get("localKeywords", (data) => {
+            sendResponse(data.localKeywords || PHISHING_KEYWORDS_VN_DEFAULT);
+        });
+        return true; // Indicates async response
+    } else if (request.action === "reportToBackend") {
+        fetch(`${API_BASE_URL}/report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request.data)
+        })
+        .then(response => response.json())
+        .then(data => sendResponse({success: true, data: data}))
+        .catch(error => sendResponse({success: false, error: error.message}));
+        return true; // Indicates async response
+    } else if (request.action === "checkDomainWithBackend") {
+        const domain = request.domain;
+        fetch(`${API_BASE_URL}/check?type=domain&value=${encodeURIComponent(domain)}`)
+            .then(response => response.json())
+            .then(data => sendResponse(data))
+            .catch(error => sendResponse({status: 'error', error: error.message}));
+        return true;
+    } else if (request.action === "getReportedMaliciousEmails") {
+        // In a real scenario, you might filter by source='user_reported' or similar
+        // For now, we assume blocklisted emails are relevant.
+        fetch(`${API_BASE_URL}/list_items?item_type=email&list_type=blocklist&per_page=500`)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(data => sendResponse({ success: true, emails: data.items || [] }))
+            .catch(error => {
+                console.error("Error fetching reported malicious emails:", error);
+                sendResponse({ success: false, error: error.message, emails: [] });
+            });
+        return true; // Indicates async response
+    }
+    return false;
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === "reportSelectedText" && info.selectionText) {
+        const selection = info.selectionText.trim();
+        let reportValue = selection;
+        let itemType = ""; // 'domain' or 'email'
+
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+        if (emailRegex.test(selection)) {
+            itemType = "email";
+        } else {
+            try {
+                let potentialDomain = selection;
+                if (!potentialDomain.match(/^https?:\/\//)) {
+                    potentialDomain = 'http://' + potentialDomain;
+                }
+                const urlObj = new URL(potentialDomain);
+                reportValue = urlObj.hostname; // Normalize to hostname
+                if (reportValue.includes('.')) {
+                     itemType = "domain";
+                }
+            } catch (e) {
+                // Not a valid URL, do nothing or notify user it's not a valid domain/email
+            }
+        }
+
+        if (itemType) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/report`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        report_type: `suspicious_${itemType}`, // e.g., suspicious_domain
+                        value: reportValue.toLowerCase(),
+                        source_url: tab.url,
+                        context: `User selection: ${selection}`
+                    })
+                });
+                const data = await response.json();
+                chrome.notifications.create({
+                    type: 'basic',
+                    iconUrl: 'icons/icon-128.png',
+                    title: 'Báo Cáo Đã Được Gửi',
+                    message: `Đã báo cáo ${itemType}: "${reportValue}". Máy chủ phản hồi: ${data.message || 'Thành công!'}`,
+                    priority: 2
+                });
+            } catch (error) {
+                console.error("Error submitting report via context menu:", error);
+                chrome.notifications.create({
+                    type: 'basic',
+                    iconUrl: 'icons/icon-128.png',
+                    title: 'Lỗi Báo Cáo',
+                    message: `Không thể gửi báo cáo cho "${reportValue}". Lỗi: ${error.message}`,
+                    priority: 2
+                });
+            }
+        } else {
+            chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icons/icon-128.png',
+                title: 'Không Thể Báo Cáo',
+                message: `Văn bản "${selection}" không được nhận dạng là domain hoặc email hợp lệ.`,
+                priority: 1
+            });
+        }
+    }
+});

@@ -8685,3 +8685,4 @@
 ||youtube.com/channel/UCqrOCgGuWSuxKjpbW1jkJHg/featured$all
 ||youtube.com/channel/UCqrOCgGuWSuxKjpbW1jkJHg/videos$all
 ||youtube.com/user/hmouseknight$all
+||googleusercontent.com/youtube.com/user/hmouseknight0^
