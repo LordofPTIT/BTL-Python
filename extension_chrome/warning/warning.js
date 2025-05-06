@@ -3,7 +3,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const blockedUrl = params.get('url');
     const listName = params.get('listName');
     const reason = params.get('reason');
-    const tabId = params.get('tabId'); // Lấy tabId nếu có
+    const tabIdParam = params.get('tabId'); // tabId is a string from URL param
+    const prevSafeUrl = params.get('prevSafeUrl') || 'chrome://newtab'; // Get the previous safe URL
 
     document.getElementById('blocked-url').textContent = blockedUrl || 'Không có URL';
     document.getElementById('list-name').textContent = listName || 'Không rõ nguồn gốc';
@@ -14,39 +15,54 @@ document.addEventListener('DOMContentLoaded', function () {
     const proceedAnywayButton = document.getElementById('proceed-anyway');
 
     goBackButton.addEventListener('click', function () {
-        if (window.history.length > 1) {
+        // Ưu tiên quay lại prevSafeUrl nếu có và hợp lệ
+        if (prevSafeUrl && (prevSafeUrl.startsWith('http:') || prevSafeUrl.startsWith('https:') || prevSafeUrl === 'chrome://newtab' || prevSafeUrl === 'about:blank')) {
+            window.location.href = prevSafeUrl;
+        } else if (tabIdParam && parseInt(tabIdParam)) {
+            const tabIdInt = parseInt(tabIdParam);
+            chrome.tabs.goBack(tabIdInt, () => {
+                if (chrome.runtime.lastError) {
+                    console.warn("Failed to go back using chrome.tabs.goBack, opening newtab:", chrome.runtime.lastError.message);
+                    window.location.href = 'chrome://newtab';
+                }
+            });
+        } else if (window.history.length > 1) {
             window.history.back();
         } else {
-            // Nếu không có lịch sử, đóng tab hoặc mở trang an toàn
-            // chrome.tabs.getCurrent(tab => { chrome.tabs.remove(tab.id); }); // Đóng tab hiện tại
-            window.location.href = 'chrome://newtab'; // Hoặc mở tab mới an toàn
+            window.location.href = 'chrome://newtab';
         }
     });
 
     reportFalsePositiveButton.addEventListener('click', function() {
         if (blockedUrl) {
-            let itemType = "domain"; // Mặc định là domain cho URL bị chặn
-            // Cố gắng xác định nếu là email (ít khả khi URL bị chặn là email thuần túy)
-            const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-            if (emailRegex.test(blockedUrl)) {
-                itemType = "email";
+            let itemType = "domain";
+            let domainToMarkSafe = blockedUrl;
+            try {
+                const urlObj = new URL(blockedUrl);
+                domainToMarkSafe = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+            } catch(e) {
+                console.warn("Could not parse blockedUrl as URL to extract domain for allowlist, using full URL string as fallback (less effective).");
             }
 
             chrome.runtime.sendMessage({
-                action: "reportToBackend",
-                data: {
-                    report_type: `false_positive_${itemType}`,
-                    value: blockedUrl.toLowerCase(),
+                action: "markAsSafeAndReport",
+                domainToMarkSafe: domainToMarkSafe, // Domain để thêm vào allowlist cục bộ
+                data: { // Dữ liệu để gửi báo cáo false positive lên backend
+                    report_type: `false_positive_domain`,
+                    value: blockedUrl.toLowerCase(), // URL gốc bị chặn
                     source_url: blockedUrl,
                     context: `Reported as safe from warning page by user.`
                 }
             }, function(response) {
                 if (response && response.success) {
-                    alert(`Đã gửi báo cáo trang "${blockedUrl}" là an toàn. Cảm ơn bạn! Thay đổi có thể mất một chút thời gian để cập nhật.`);
-                    // Có thể tự động điều hướng người dùng hoặc cho họ lựa chọn
+                    alert(`Đã ghi nhận "${domainToMarkSafe}" là an toàn và gửi báo cáo. Trang sẽ không bị chặn nữa. Bạn có thể cần tải lại trang đích.`);
+                    // Tùy chọn: tự động điều hướng hoặc cho phép người dùng tự điều hướng
                     // window.location.href = blockedUrl;
+                    reportFalsePositiveButton.textContent = "Đã báo cáo an toàn";
+                    reportFalsePositiveButton.disabled = true;
+                    proceedAnywayButton.textContent = "Tiếp tục truy cập (Đã cho phép)";
                 } else {
-                    alert(`Gửi báo cáo không thành công. Lỗi: ${response ? response.error : 'Unknown error'}`);
+                    alert(`Gửi yêu cầu không thành công. Lỗi: ${response ? (response.error || (response.reportSuccess === false ? "Lỗi báo cáo backend" : "Lỗi cập nhật allowlist")) : 'Unknown error'}`);
                 }
             });
         } else {
@@ -56,13 +72,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     proceedAnywayButton.addEventListener('click', function () {
         if (blockedUrl) {
-            // Gửi thông điệp tới background script để thêm vào session whitelist
-            chrome.runtime.sendMessage({
-                action: "addToSessionWhitelist",
-                url: blockedUrl
-            }, function(response) {
+            chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(response) {
                 if (response && response.success) {
-                    // Sau khi được background xác nhận, tiến hành điều hướng
                     window.location.href = blockedUrl;
                 } else {
                     alert("Không thể cho phép tạm thời. Vui lòng thử lại.");

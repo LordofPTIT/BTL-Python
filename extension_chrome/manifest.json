@@ -47,6 +47,7 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
+  "options_page": "options/options.html",
   "web_accessible_resources": [
     {
       "resources": [
@@ -55,7 +56,9 @@
         "warning/warning.js",
         "icons/icon-48.png",
         "data/CLDBllacklist.txt",
-        "data/phishing_keywords_vn.json"
+        "data/phishing_keywords_vn.json",
+        "data/urls-ABP.txt",
+        "data/urls.txt"
       ],
       "matches": ["<all_urls>"]
     }
