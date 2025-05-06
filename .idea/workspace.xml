@@ -5,19 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
-      <change afterPath="$PROJECT_DIR$/extension_chrome/scripts/show_warning_popup.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/.env" beforeDir="false" afterPath="$PROJECT_DIR$/backend/.env" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/import_domains.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/import_domains.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/local_phishing_guard.db" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/backend/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/manifest.json" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/manifest.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/options/options.html" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/options/options.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/options/options.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/options/options.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/background.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/background.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/content.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/content.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/styles/content.css" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/styles/content.css" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -145,7 +133,7 @@
       <workItem from="1746364296321" duration="15528000" />
       <workItem from="1746453560006" duration="10679000" />
       <workItem from="1746515480802" duration="4948000" />
-      <workItem from="1746525840500" duration="6760000" />
+      <workItem from="1746525840500" duration="7443000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
