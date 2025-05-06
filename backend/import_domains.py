@@ -286,7 +286,7 @@ if __name__ == "__main__":
         print("Usage: python import_domains.py <domain|email> <file1> [file2 ...]")
         print("       python import_domains.py --deduplicate <domain|email>")
         sys.exit(1)
-    command = sys.argv[1]
+    command: str = sys.argv[1]
     db_session = SessionLocal()  # Create a session
     try:
         if command == '--deduplicate':
