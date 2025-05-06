@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VN Phishing Guard Pro (Local SQLite)",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Phát hiện trang web, email lừa đảo với DB SQLite cục bộ, quét từ khóa, báo cáo người dùng và popup cảnh báo không chặn.",
   "permissions": [
     "storage",
@@ -10,7 +10,8 @@
     "alarms",
     "notifications",
     "webRequest",
-    "contextMenus"
+    "contextMenus",
+    "webNavigation"
   ],
   "host_permissions": [
     "*://*/*"

@@ -46,7 +46,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 function schedulePeriodicUpdates() {
-    chrome.alarms.create('periodicUpdate', { periodInMinutes: 60 }); // Update every 60 minutes
+    chrome.alarms.create('periodicUpdate', { periodInMinutes: 60 });
 }
 
 chrome.alarms.onAlarm.addListener(alarm => {
@@ -111,7 +111,7 @@ function parseABPList(text) {
         }
 
         if (domainPart) {
-            if (pathPattern && pathPattern !== "/") { // Ensure path is not just "/" alone unless intended
+            if (pathPattern && pathPattern !== "/") {
                 rules.push({ domain: domainPart, path: pathPattern, original: line });
             } else {
                 rules.push({ domain: domainPart, path: null, original: line });
@@ -165,25 +165,25 @@ function isUrlInParsedList(currentUrlString, parsedRules) {
 
 async function loadAndCheckUrlWithLocalDB(tabId, url) {
     if (!url || (!url.startsWith('http:') && !url.startsWith('https:'))) {
-        return;
+        return false;
     }
     try {
         const { localBlacklistABPRules } = await chrome.storage.local.get('localBlacklistABPRules');
         if (isUrlInParsedList(url, localBlacklistABPRules)) {
             console.log("URL matched in local ABP blacklist:", url);
             showCustomNotificationOrWarningPage(tabId, url, "Local Blocklist", "Trang web này nằm trong danh sách chặn cục bộ (ABP).");
-            return true; // Indicates a match
+            return true;
         }
     } catch (error) {
         console.error("Error checking URL with local ABP blacklist:", error);
     }
-    return false; // No match or error
+    return false;
 }
 
 
 async function checkUrlWithBackend(tabId, urlString) {
     if (!urlString || (!urlString.startsWith('http:') && !urlString.startsWith('https:'))) {
-        return;
+        return false;
     }
 
     try {
@@ -193,7 +193,7 @@ async function checkUrlWithBackend(tabId, urlString) {
         const response = await fetch(`${API_BASE_URL}/check?type=domain&value=${encodeURIComponent(domain)}`);
         if (!response.ok) {
             console.error(`Backend check failed for ${domain}: ${response.status}`);
-            return;
+            return false;
         }
         const data = await response.json();
 
@@ -216,7 +216,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.url && tab.active) {
         currentPhishingUrl = changeInfo.url;
         currentTabId = tabId;
-        console.log(`Navigating to: ${changeInfo.url}`);
+        console.log(`Navigating to (onUpdated): ${changeInfo.url}`);
         if (await loadAndCheckUrlWithLocalDB(tabId, changeInfo.url)) return;
         await checkUrlWithBackend(tabId, changeInfo.url);
     }
@@ -224,13 +224,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (details.frameId === 0 && details.url && (details.url.startsWith('http:') || details.url.startsWith('https:'))) {
-        currentPhishingUrl = details.url;
-        currentTabId = details.tabId;
-        // This check might be redundant if onUpdated also fires reliably, but good for safety.
-        // Prioritize onUpdated if it works well, to avoid double checks.
-        // console.log(`WebNavigation committed: ${details.url}`);
-        // if (await loadAndCheckUrlWithLocalDB(details.tabId, details.url)) return;
-        // await checkUrlWithBackend(details.tabId, details.url);
+        // Check if this navigation is for an active tab to avoid background tab processing if not desired
+        const tab = await chrome.tabs.get(details.tabId);
+        if (tab.active) {
+            currentPhishingUrl = details.url;
+            currentTabId = details.tabId;
+            console.log(`Navigating to (onCommitted): ${details.url}`);
+            if (await loadAndCheckUrlWithLocalDB(details.tabId, details.url)) return;
+            await checkUrlWithBackend(details.tabId, details.url);
+        }
     }
 });
 
@@ -243,11 +245,11 @@ function showCustomNotificationOrWarningPage(tabId, url, listName, reason) {
         const warningType = settings.warningType || 'warning_page';
 
         if (warningType === 'notification') {
-            chrome.notifications.create({
+            chrome.notifications.create_('notif-' + Date.now(), { // Unique ID for notification
                 type: 'basic',
                 iconUrl: 'icons/icon-128.png',
                 title: 'Cảnh Báo Phishing!',
-                message: `Trang web ${url} có dấu hiệu lừa đảo (${listName}). Lý do: ${reason}`,
+                message: `Trang web ${url.substring(0,100)}... có dấu hiệu lừa đảo (${listName}). Lý do: ${reason.substring(0,100)}...`,
                 priority: 2,
                 buttons: [{ title: 'Tới trang cảnh báo' }]
             });
@@ -260,10 +262,11 @@ function showCustomNotificationOrWarningPage(tabId, url, listName, reason) {
 }
 
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-    if (buttonIndex === 0 && currentPhishingUrl && currentTabId) { // Assuming first button is "Go to warning page"
+    if (buttonIndex === 0 && currentPhishingUrl && currentTabId) {
         const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
                                `?url=${encodeURIComponent(currentPhishingUrl)}&listName=${encodeURIComponent("Notification Clicked")}&reason=${encodeURIComponent("User clicked notification to see details.")}`;
         chrome.tabs.update(currentTabId, { url: warningPageUrl });
+        chrome.notifications.clear(notificationId);
     }
 });
 
@@ -274,7 +277,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.storage.local.get("localKeywords", (data) => {
             sendResponse(data.localKeywords || PHISHING_KEYWORDS_VN_DEFAULT);
         });
-        return true; // Indicates async response
+        return true;
     } else if (request.action === "reportToBackend") {
         fetch(`${API_BASE_URL}/report`, {
             method: 'POST',
@@ -284,7 +287,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         .then(response => response.json())
         .then(data => sendResponse({success: true, data: data}))
         .catch(error => sendResponse({success: false, error: error.message}));
-        return true; // Indicates async response
+        return true;
     } else if (request.action === "checkDomainWithBackend") {
         const domain = request.domain;
         fetch(`${API_BASE_URL}/check?type=domain&value=${encodeURIComponent(domain)}`)
@@ -293,8 +296,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             .catch(error => sendResponse({status: 'error', error: error.message}));
         return true;
     } else if (request.action === "getReportedMaliciousEmails") {
-        // In a real scenario, you might filter by source='user_reported' or similar
-        // For now, we assume blocklisted emails are relevant.
         fetch(`${API_BASE_URL}/list_items?item_type=email&list_type=blocklist&per_page=500`)
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -305,7 +306,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.error("Error fetching reported malicious emails:", error);
                 sendResponse({ success: false, error: error.message, emails: [] });
             });
-        return true; // Indicates async response
+        return true;
     }
     return false;
 });
@@ -314,7 +315,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === "reportSelectedText" && info.selectionText) {
         const selection = info.selectionText.trim();
         let reportValue = selection;
-        let itemType = ""; // 'domain' or 'email'
+        let itemType = "";
 
         const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
         if (emailRegex.test(selection)) {
@@ -326,12 +327,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     potentialDomain = 'http://' + potentialDomain;
                 }
                 const urlObj = new URL(potentialDomain);
-                reportValue = urlObj.hostname; // Normalize to hostname
+                reportValue = urlObj.hostname;
                 if (reportValue.includes('.')) {
                      itemType = "domain";
                 }
             } catch (e) {
-                // Not a valid URL, do nothing or notify user it's not a valid domain/email
+                // Not a valid URL
             }
         }
 
@@ -341,14 +342,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        report_type: `suspicious_${itemType}`, // e.g., suspicious_domain
+                        report_type: `suspicious_${itemType}`,
                         value: reportValue.toLowerCase(),
                         source_url: tab.url,
                         context: `User selection: ${selection}`
                     })
                 });
                 const data = await response.json();
-                chrome.notifications.create({
+                chrome.notifications.create('report-' + Date.now(), { // Unique ID
                     type: 'basic',
                     iconUrl: 'icons/icon-128.png',
                     title: 'Báo Cáo Đã Được Gửi',
@@ -357,7 +358,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 });
             } catch (error) {
                 console.error("Error submitting report via context menu:", error);
-                chrome.notifications.create({
+                chrome.notifications.create('report-error-' + Date.now(), { // Unique ID
                     type: 'basic',
                     iconUrl: 'icons/icon-128.png',
                     title: 'Lỗi Báo Cáo',
@@ -366,11 +367,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 });
             }
         } else {
-            chrome.notifications.create({
+            chrome.notifications.create('report-invalid-' + Date.now(), { // Unique ID
                 type: 'basic',
                 iconUrl: 'icons/icon-128.png',
                 title: 'Không Thể Báo Cáo',
-                message: `Văn bản "${selection}" không được nhận dạng là domain hoặc email hợp lệ.`,
+                message: `Văn bản "${selection.substring(0,50)}..." không được nhận dạng là domain hoặc email hợp lệ.`,
                 priority: 1
             });
         }
