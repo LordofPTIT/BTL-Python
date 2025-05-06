@@ -10,27 +10,27 @@
     "alarms",
     "contextMenus",
     "notifications",
-    "webRequest",
-    "webRequestBlocking"
+    "webRequest"
+  
   ],
   "host_permissions": [
     "*://*/*",
     "*://mail.google.com/*",
     "*://outlook.office.com/*",
-    "*://outlook.live.com/*"
+    "*://outlook.live.com/*",
+    "http://127.0.0.1:5001/"
+
   ],
   "background": {
     "service_worker": "scripts/background.js"
   },
   "content_scripts": [
     {
-
       "matches": [
          "*://mail.google.com/*",
          "*://outlook.live.com/*",
          "*://outlook.office.com/*",
          "*://*.mail.yahoo.com/*"
-
       ],
       "js": ["scripts/content.js"],
       "css": ["styles/content.css"],
@@ -51,13 +51,5 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
-  },
-  "options_page": "options/options.html",
-
-  "web_accessible_resources": [
-    {
-      "resources": ["warning/warning.html", "styles/content.css", "icons/*"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }
