@@ -1,270 +1,208 @@
-# backend/import_domains.py
 import logging
 import os
 import sys
 import re
 from urllib.parse import urlparse
-from typing import Optional, List, Set
-
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import Column, Integer, String, DateTime, UniqueConstraint
-from datetime import datetime, timezone
+from sqlalchemy import create_engine, select, exists, func, inspect, delete
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy import Column, Integer, String, DateTime, Text
 
-DEFAULT_CHUNK_SIZE = 500
+load_dotenv()
 
-URLS_FILE = "urls.txt"
-URLS_ABP_FILE = "urls-ABP.txt"
-CLDB_BLACKLIST_FILE = "CLDBllacklist.txt"
-FILES_TO_PROCESS = [URLS_FILE, URLS_ABP_FILE, CLDB_BLACKLIST_FILE]
+EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+ALLOWED_ITEM_TYPES_IMPORT = {'domain', 'email'}
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stdout)
 logger = logging.getLogger("import_script")
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
-else:
-    logger.warning(".env file not found. Using system environment variables.")
+BASE_DIR_IMPORT = os.path.abspath(os.path.dirname(__file__))
+DEFAULT_DATABASE_FILE_IMPORT = 'local_phishing_guard.db'
+DATABASE_URL_ENV_IMPORT = os.getenv('DATABASE_URL')
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    logger.critical("DATABASE_URL environment variable not set.")
-    sys.exit(1)
+SQLALCHEMY_DATABASE_URI_IMPORT = DATABASE_URL_ENV_IMPORT if DATABASE_URL_ENV_IMPORT else f'sqlite:///{os.path.join(BASE_DIR_IMPORT, DEFAULT_DATABASE_FILE_IMPORT)}'
+if SQLALCHEMY_DATABASE_URI_IMPORT.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URI_IMPORT = SQLALCHEMY_DATABASE_URI_IMPORT.replace("postgres://", "postgresql://", 1)
 
 try:
-    engine = create_engine(DATABASE_URL)
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-    logger.info("Database connection successful.")
+    engine_import = create_engine(SQLALCHEMY_DATABASE_URI_IMPORT, pool_pre_ping=True, pool_recycle=300)
+    SessionLocalImport = sessionmaker(autocommit=False, autoflush=False, bind=engine_import)
+    logger.info(f"Import script DB engine created for {SQLALCHEMY_DATABASE_URI_IMPORT}.")
 except Exception as e:
-    logger.critical(f"Failed to connect to database using DATABASE_URL: {e}")
+    logger.critical(f"Failed to create import script DB engine: {e}")
     sys.exit(1)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+BaseImport = declarative_base()
 
-Base = declarative_base()
+class BlocklistImport(BaseImport):
+    __tablename__ = 'blocklist'
+    id = Column(Integer, primary_key=True)
+    item_type = Column(String(10), nullable=False, index=True)
+    value = Column(String(255), nullable=False, unique=True, index=True)
+    reason = Column(String(255), nullable=True)
+    source = Column(String(100), nullable=True)
+    added_on = Column(DateTime, server_default=func.now())
+    status = Column(String(50), default='active', nullable=False, index=True)
 
-class PhishingDomain(Base):
-    __tablename__ = 'phishing_domains'
+class WhitelistImport(BaseImport):
+    __tablename__ = 'whitelist'
+    id = Column(Integer, primary_key=True)
+    item_type = Column(String(10), nullable=False, index=True)
+    value = Column(String(255), nullable=False, unique=True, index=True)
+    reason = Column(String(255), nullable=True)
+    source = Column(String(100), nullable=True)
+    added_on = Column(DateTime, server_default=func.now())
 
-    id = Column(Integer, primary_key=True, index=True)
-    domain = Column(String(255), unique=True, index=True, nullable=False)
-    added_at = Column(DateTime, default=datetime.now(timezone.utc))
-    source = Column(String(50), nullable=True)
+BaseImport.metadata.create_all(bind=engine_import)
+logger.info("Import script: Tables checked/created if they didn't exist.")
 
-    __table_args__ = (UniqueConstraint('domain', name='_domain_uc'),)
-
-    def __repr__(self):
-        return f"<PhishingDomain(domain='{self.domain}')>"
-
-def clean_domain(line: str) -> Optional[str]:
-    line = line.strip()
-
-    if not line or line.startswith('!') or '#' in line or '$' not in line and any(char in line for char in ['~', '|', '@', '*']):
-        return None
-
-    if line.startswith('||'):
-        line = line[2:]
-
-    if line.endswith('^'):
-        line = line[:-1]
-
-    if '$' in line:
-        line = line.split('$', 1)[0]
-
+def normalize_domain_import(domain: str) -> str | None:
+    if not domain or not isinstance(domain, str): return None
     try:
-        if '://' not in line:
-             if '/' in line or '.' in line:
-                  line = 'http://' + line
-
-        parsed = urlparse(line)
-        domain = parsed.hostname
-        if domain:
-            domain = domain.lower()
-            if domain.startswith('www.'):
-                 domain = domain[4:]
-            return domain
-        return line.lower() if '.' in line and '/' not in line else None
-
-    except Exception as e:
-        logger.warning(f"Could not parse domain from line '{line}': {e}")
-        return None
-
-def read_domains_from_file(filepath: str) -> List[str]:
-    domains = set()
-    processed_lines_count = 0
-    full_filepath = os.path.join(os.path.dirname(__file__), filepath)
-
-    if not os.path.exists(full_filepath):
-        logger.warning(f"File not found: {full_filepath}. Skipping.")
-        return []
-
-    logger.info(f"Reading file: {full_filepath}")
-    try:
-        with open(full_filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                processed_lines_count += 1
-                cleaned_domain = clean_domain(line)
-                if cleaned_domain:
-                    domains.add(cleaned_domain)
-
-        logger.info(f"Processed {processed_lines_count} lines from file {filepath}.")
-        return list(domains)
-
-    except Exception as e:
-        logger.error(f"Error reading or processing file {full_filepath}: {e}")
-        return []
-
-def get_existing_domains(session: Session) -> Set[str]:
-    domains = set()
-    logger.info("Checking for existing domains in the database...")
-    try:
-        stmt = select(PhishingDomain.domain)
-        result = session.execute(stmt)
-        existing_domains = set([row[0] for row in result])
-        logger.info(f"Retrieved {len(existing_domains)} existing domains from the database.")
-        return existing_domains
-    except SQLAlchemyError as e:
-        logger.error(f"Error retrieving existing domains: {e}")
-        raise # Re-raise to indicate failure
-    except Exception as e:
-        logger.critical(f"Unexpected error retrieving existing domains: {e}", exc_info=True)
-        raise
-
-def import_new_domains(session: Session, new_domains: List[str]) -> int:
-    if not new_domains:
-        logger.info("No new domains to import.")
-        return 0
-
-    sql = text(f"""
-        INSERT IGNORE INTO {PhishingDomain.__tablename__} (domain, added_at, source)
-        VALUES (:domain, :added_at, :source)
-    """)
-
-    data_to_insert = [
-        {
-            "domain": domain,
-            "added_at": datetime.now(timezone.utc),
-            "source": None
-        }
-        for domain in new_domains
-    ]
-
-    total_to_import = len(data_to_insert)
-    logger.info(f"Starting import of {total_to_import} new potential domains (batch size: {DEFAULT_CHUNK_SIZE}).")
-    processed_count = 0
-
-    try:
-        for i in range(0, total_to_import, DEFAULT_CHUNK_SIZE):
-            batch_data = data_to_insert[i:i + DEFAULT_CHUNK_SIZE]
-            try:
-                session.execute(sql, batch_data)
-                session.commit()
-                processed_count += len(batch_data)
-                logger.info(f"Processed batch {i//DEFAULT_CHUNK_SIZE + 1}. Attempted import: {processed_count}/{total_to_import}.")
-            except SQLAlchemyError as e:
-                logger.error(f"Database error during batch import (batch starting at index {i}): {e}")
-                session.rollback() # Rollback the failed batch
-            except Exception as e:
-                logger.critical(f"Unexpected error during batch import (batch starting at index {i}): {e}", exc_info=True)
-                session.rollback() # Rollback the failed batch
-                # Decide if you want to stop or continue after a critical error
-                # For now, let's stop.
-                raise # Re-raise the critical error
-
-        logger.info("Import process finished (duplicates ignored).")
-
-    except Exception as e:
-         # This catches the re-raised critical error from the batch loop
-         logger.critical(f"Import process interrupted due to a critical batch error: {e}", exc_info=True)
-         raise # Re-raise to be caught by main's exception handler
-
-
-    # Note: Returning total_to_import doesn't mean all were inserted,
-    # it's the number of items we *tried* to insert after filtering.
-    # To get the exact number of *new* inserts, additional logic is needed.
-    # Returning processed_count reflects how many we *attempted* to process in batches.
-    return processed_count
-
-
-def process_domain_files(session: Session) -> int:
-    all_domains_from_files: Set[str] = set()
-
-    logger.info("Starting to read domains from files...")
-
-    for filepath in FILES_TO_PROCESS:
-        domains_from_file = read_domains_from_file(filepath)
-        all_domains_from_files.update(domains_from_file)
-
-    logger.info(f"Total unique domains read from all files: {len(all_domains_from_files)}")
-
-    if not all_domains_from_files:
-        logger.info("No valid domains found to import.")
-        return 0
-
-    try:
-        existing_domains = get_existing_domains(session)
+        domain = domain.strip().lower()
+        if not domain: return None
+        if re.fullmatch(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", domain) or ':' in domain: return None
+        parsed = urlparse(domain if '://' in domain else 'http://' + domain)
+        hostname = parsed.hostname
+        if not hostname: return None
+        hostname = hostname.strip('.')
+        if hostname.startswith('www.'): hostname = hostname[4:]
+        if not hostname: return None
+        if not re.fullmatch(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$", hostname):
+            return None
+        return hostname
     except Exception:
-        logger.error("Failed to retrieve existing domains. Cannot proceed with import.")
-        return 0
+        return None
 
-    new_domains_to_import: List[str] = list(all_domains_from_files - existing_domains)
+def is_valid_email_import(email: str) -> bool:
+    if not email or not isinstance(email, str): return False
+    return re.fullmatch(EMAIL_REGEX, email) is not None
 
-    logger.info(f"Found {len(new_domains_to_import)} potential new domains to import.")
-
-    if not new_domains_to_import:
-        logger.info("No new domains need to be imported into the database.")
-        return 0
-
-    imported_count = import_new_domains(session, new_domains_to_import)
-
-    return imported_count
-
-def main():
-    logger.info("Starting domain import script.")
-    db_session: Optional[Session] = None
-    exit_code = 0
+def import_file_to_list(session, ModelClass, item_type, filepath):
+    count = 0; added = 0; skipped_exists_db = 0; skipped_invalid = 0; skipped_dup_file = 0; errors = 0
+    processed_values_in_file = set()
+    filename = os.path.basename(filepath)
+    logger.info(f"Starting import for {item_type} from {filename} into {ModelClass.__tablename__}")
 
     try:
-        db_session = SessionLocal()
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line_content in f:
+                count += 1
+                value = line_content.strip()
+                if not value or value.startswith('#') or value.startswith('!'): continue
 
-        Base.metadata.create_all(engine, tables=[PhishingDomain.__table__])
-        logger.info(f"Checked/created table '{PhishingDomain.__tablename__}'.")
+                original_value_for_log = value
+                normalized_value = None
 
-        processed_items_count = process_domain_files(db_session)
+                if item_type == 'domain':
+                    if value.startswith('||'): value = value[2:]
+                    value = value.split('$')[0].split('^')[0].split('#')[0].strip().rstrip('/')
+                    if value.startswith('*.'): value = value[2:]
+                    elif value.startswith('.'): value = value[1:]
 
-        logger.info(f"Import process completed. Attempted to process {processed_items_count} potential new domains (duplicates ignored).")
+                    normalized_value = normalize_domain_import(value)
+                    if not normalized_value: skipped_invalid += 1; continue
+                elif item_type == 'email':
+                    normalized_value = value.lower()
+                    if not is_valid_email_import(normalized_value): skipped_invalid += 1; continue
+                else: logger.error(f"Unsupported item type '{item_type}'"); return 0, count, 0
 
-    except Exception as e:
-        logger.critical(f"A critical error occurred during the main process: {e}", exc_info=True)
-        exit_code = 1
-        if db_session and db_session.is_active:
+                if normalized_value in processed_values_in_file: skipped_dup_file += 1; continue
+                processed_values_in_file.add(normalized_value)
+
+        unique_values_to_check = list(processed_values_in_file)
+        if not unique_values_to_check: logger.info(f"No valid items from {filename}."); return 0, skipped_invalid + skipped_dup_file, 0
+
+        items_to_insert_mappings = []
+        existing_in_db = set()
+        value_col = ModelClass.value
+
+        chunk_size = 1000
+        for i in range(0, len(unique_values_to_check), chunk_size):
+            chunk = unique_values_to_check[i:i+chunk_size]
             try:
-                db_session.rollback()
-                logger.warning("Rolled back transaction due to critical error.")
-            except Exception as rb_err:
-                 logger.error(f"Error during rollback attempt after critical error: {rb_err}")
+                results = session.execute(select(value_col).where(ModelClass.item_type == item_type).where(value_col.in_(chunk))).scalars().all()
+                existing_in_db.update(results)
+            except SQLAlchemyError as e: logger.error(f"DB error existence check chunk {i//chunk_size}: {e}"); errors += len(chunk); continue
 
+        import_source_tag = f"import_{filename}"
+        for norm_val in unique_values_to_check:
+             if norm_val in existing_in_db: skipped_exists_db += 1; continue
+             item_map = {'item_type': item_type, 'value': norm_val, 'source': import_source_tag}
+             if hasattr(ModelClass, 'status'): item_map['status'] = 'active'
+             items_to_insert_mappings.append(item_map)
+
+        if items_to_insert_mappings:
+            try:
+                 session.bulk_insert_mappings(ModelClass, items_to_insert_mappings)
+                 session.commit(); added = len(items_to_insert_mappings)
+            except IntegrityError:
+                 session.rollback(); logger.warning(f"Integrity error bulk insert {filename}, trying individual."); added_ind = 0
+                 for item_map_ind in items_to_insert_mappings:
+                     try:
+                         if not session.execute(select(exists().where(ModelClass.item_type == item_map_ind['item_type']).where(value_col == item_map_ind['value']))).scalar():
+                             session.add(ModelClass(**item_map_ind)); session.commit(); added_ind +=1
+                         else: skipped_exists_db += 1
+                     except IntegrityError: session.rollback(); skipped_exists_db +=1
+                     except SQLAlchemyError as e_ind: session.rollback(); logger.error(f"Indiv insert error {item_map_ind['value']}: {e_ind}"); errors += 1
+                 added = added_ind
+            except SQLAlchemyError as e_bulk: session.rollback(); logger.error(f"Bulk insert error {filename}: {e_bulk}"); errors += len(items_to_insert_mappings); added = 0
+        else: logger.info(f"No new items from {filename} to add.")
+
+    except FileNotFoundError: logger.error(f"File not found: {filepath}"); errors = count or 1
+    except Exception as e_file: logger.error(f"Unexpected error processing {filepath}: {e_file}", exc_info=True); errors = count or 1; added=0; skipped_exists_db=0; skipped_invalid=0; skipped_dup_file=0;
     finally:
-        if db_session:
-            try:
-                db_session.close()
-                logger.info("Database session closed.")
-            except Exception as close_err:
-                logger.error(f"Error closing the database session: {close_err}")
-                if exit_code == 0: exit_code = 1
+        if session.is_active:
+            session.rollback()
 
-    logger.info(f"Script finished with exit code {exit_code}.")
-    sys.exit(exit_code)
+    total_skipped = skipped_exists_db + skipped_invalid + skipped_dup_file
+    logger.info(f"Imported {filename}: Added={added}, Skipped={total_skipped} (DB:{skipped_exists_db}, Invalid:{skipped_invalid}, FileDup:{skipped_dup_file}), Errors={errors}, Lines={count}")
+    return added, total_skipped, errors
+
+def remove_duplicates_from_table(session, ModelClass, item_type_filter):
+    logger.info(f"Deduplicating {item_type_filter} in {ModelClass.__tablename__}...")
+    value_col = ModelClass.value; pk_col = ModelClass.id
+    ids_to_keep_query = select(func.min(pk_col)).where(ModelClass.item_type == item_type_filter).group_by(value_col)
+    ids_to_keep = session.execute(ids_to_keep_query).scalars().all()
+    if not ids_to_keep: logger.info(f"No groups found for {item_type_filter}, deduplication not needed."); return 0
+
+    stmt_delete = delete(ModelClass).where(ModelClass.item_type == item_type_filter).where(pk_col.not_in(ids_to_keep))
+    try:
+        result = session.execute(stmt_delete); session.commit(); deleted_count = result.rowcount
+        logger.info(f"Deduplication {item_type_filter}: Deleted {deleted_count} rows.")
+        return deleted_count
+    except SQLAlchemyError as e: session.rollback(); logger.error(f"Deduplication error {item_type_filter}: {e}"); return -1
 
 if __name__ == "__main__":
-    main()
+    db_session_import = SessionLocalImport()
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    files_to_process = [
+        {"path": os.path.join(current_script_dir, "urls.txt"), "type": "domain"},
+        {"path": os.path.join(current_script_dir, "urls-ABP.txt"), "type": "domain"},
+        {"path": os.path.join(current_script_dir, "CLDBllacklist.txt"), "type": "domain"}
+        # Thêm các file email vào đây nếu có, ví dụ:
+        # {"path": os.path.join(current_script_dir, "block_emails.txt"), "type": "email"}
+    ]
+    overall_added, overall_skipped, overall_errors = 0, 0, 0
+
+    try:
+        logger.info("--- Starting List Import ---")
+        for file_info in files_to_process:
+            file_p = file_info["path"]
+            item_t = file_info["type"]
+            TargetModel = BlocklistImport # Hiện tại chỉ import vào blocklist
+            if not os.path.exists(file_p): logger.error(f"File not found: {file_p}. Skipping."); overall_errors += 1; continue
+            added_f, skipped_f, errors_f = import_file_to_list(db_session_import, TargetModel, item_t, file_p)
+            overall_added += added_f; overall_skipped += skipped_f; overall_errors += errors_f
+
+        logger.info(f"Overall Import Summary: Added={overall_added}, Skipped={overall_skipped}, Errors={overall_errors}")
+
+        logger.info("--- Starting Database Deduplication ---")
+        remove_duplicates_from_table(db_session_import, BlocklistImport, "domain")
+        remove_duplicates_from_table(db_session_import, BlocklistImport, "email")
+        remove_duplicates_from_table(db_session_import, WhitelistImport, "domain")
+        remove_duplicates_from_table(db_session_import, WhitelistImport, "email")
+
+    except Exception as main_e: logger.critical(f"Critical error in main import: {main_e}", exc_info=True)
+    finally: db_session_import.close(); logger.info("Import script DB session closed.")

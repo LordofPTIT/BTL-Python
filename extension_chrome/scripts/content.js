@@ -1,316 +1,235 @@
-console.log("Phishing Guard Content Script Loaded.");
+/* global chrome */
+const WARNING_POPUP_ID_CONTENT_SCRIPT = 'phishing-guard-content-script-popup';
+const CHECKED_EMAIL_ELEMENT_ATTR_CONTENT = 'data-phishing-guard-email-processed';
+const EMAIL_PROCESS_DEBOUNCE_MS = 1200; // Milliseconds to wait after DOM changes before processing
 
-// --- Constants ---
-const WARNING_BANNER_ID = 'phishing-guard-warning-banner';
-const CHECKED_EMAIL_ATTR = 'data-phishing-guard-checked'; // Mark emails that have been processed
-const EMAIL_BODY_CHECK_DELAY_MS = 1500; // Delay before checking email body after DOM changes
+let emailProcessingTimeoutId = null;
+let lastProcessedVisibleEmailElement = null;
 
-// --- State ---
-let emailCheckTimeout = null; // Timeout ID for debouncing email checks
-let currentVisibleEmailElement = null; // Track the currently viewed email container
-
-// --- Helper Functions ---
-
-function findEmailContainer(targetElement) {
-    // Find the main container element for an open email view.
-    // This requires inspecting the DOM structure of Gmail, Outlook, etc.
-    // These selectors are EXAMPLES and WILL LIKELY NEED ADJUSTMENT.
-
-    // Gmail Example (might change with updates)
-    let container = targetElement.closest('.nH.bkK, .nH.if'); // Common containers for email threads/views
-    if (container) return container;
-
-    // Outlook Web Example (might change with updates)
-    container = targetElement.closest('[role="main"] .IzmLX'); // Container usually holding email content area
-    if (container) return container;
-    container = targetElement.closest('.wide-content-host'); // Another potential container
-    if (container) return container;
-
-
-    // Yahoo Mail Example (Inspect needed)
-    container = targetElement.closest('.some-yahoo-email-container-selector');
-    if (container) return container;
-
-    console.log("Content Script: Could not find specific email container for target:", targetElement);
-    // Fallback: Look for broader containers, might be less accurate
-    container = targetElement.closest('[role="document"], [role="main"], .email-view');
-    return container;
+// Function to find the main container of the currently viewed email
+function findEmailContextForProcessing(targetElement) {
+    if (!targetElement || typeof targetElement.closest !== 'function') return null;
+    // Add/refine selectors for different webmail clients
+    let emailContainer = targetElement.closest('.nH.bkK, .nH.if, .UI, .Cp, .aeF, .aps, .aeJ, .bkK .nH'); // Gmail selectors
+    if (emailContainer) return { type: 'gmail', element: emailContainer };
+    emailContainer = targetElement.closest('[role="main"] .allowTextSelection, .wide-content-host, .conductorContent, .read-mode-wrap, .BkRhG, #Item.Content'); // Outlook selectors
+    if (emailContainer) return { type: 'outlook', element: emailContainer };
+    emailContainer = targetElement.closest('.eml-display, #message-viewer, .mail-detail-content, .ThreadView-container'); // Yahoo selectors
+    if (emailContainer) return { type: 'yahoo', element: emailContainer };
+    return null; // Could not identify email context
 }
 
-function extractEmailDetails(emailElement) {
-    // Extract sender and content from the identified email container.
-    // Again, these selectors are EXAMPLES.
+// Function to extract details (sender, subject, body) from the email container
+function extractDetailsFromEmailContext(context) {
+    const { type, element } = context;
+    let senderEmail = null, subject = '', bodyText = '';
+    const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi; // Global flag is important
 
-    let sender = null;
-    let content = '';
-    const emailAddressRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-
-    // Gmail Examples:
-    let senderElement = emailElement.querySelector('.gD[email]');
-    if (senderElement) sender = senderElement.getAttribute('email');
-    // Alternative sender element
-    if (!sender) {
-         senderElement = emailElement.querySelector('.go'); // Contains sender name/email
-         if(senderElement && senderElement.textContent) {
-              const matches = senderElement.textContent.match(emailAddressRegex);
-              if(matches) sender = matches[matches.length -1]; // Take the last found email
-         }
-    }
-    // Gmail Body
-    const bodyElement = emailElement.querySelector('.a3s.aiL, .ii.gt'); // Common body wrappers
-    if (bodyElement) content = bodyElement.innerText; // Get text content
-
-    // Outlook Web Examples:
-     if (!sender) {
-          // Outlook sender often in a specific div structure
-          senderElement = emailElement.querySelector('[role="heading"] + div span'); // Find span near heading
-          if (senderElement?.textContent) {
-               const matches = senderElement.textContent.match(emailAddressRegex);
-               if (matches) sender = matches[0]; // Usually just one
-          }
-          // Alternative: Look for specific class names if available
-          if (!sender) {
-              senderElement = emailElement.querySelector('.lMFJL span, .pEcEi span'); // Classes observed in Outlook headers
-              if (senderElement?.textContent) {
-                  const matches = senderElement.textContent.match(emailAddressRegex);
-                  if (matches) sender = matches[0];
-              }
-          }
-     }
-     // Outlook Body
-     if (!content) {
-          const outlookBody = emailElement.querySelector('.rps_*, .PlainText, .ZoomReadable, .elementToProof'); // Common body classes/areas
-          if (outlookBody) content = outlookBody.innerText;
-          // If body is complex (e.g., nested divs), might need more specific traversal
-          if(!content) {
-              const mainContentArea = emailElement.querySelector('[role="main"] .IzmLX, [role="main"] .BkRhG'); // Find main content area
-              if(mainContentArea) content = mainContentArea.innerText;
-          }
-     }
-
-
-    // Yahoo Mail Examples: (Inspect required)
-    if (!sender) {
-        senderElement = emailElement.querySelector('.yahoo-sender-selector');
-        if (senderElement?.textContent) {
-            const matches = senderElement.textContent.match(emailAddressRegex);
-            if (matches) sender = matches[0];
+    try {
+        // Gmail Specific Selectors
+        if (type === 'gmail') {
+            const senderEl = element.querySelector('.gD[email], .go[email], .gL .gI span[email], span[email].yP'); // More sender variations
+            if (senderEl) senderEmail = senderEl.getAttribute('email') || (senderEl.innerText.match(emailRegex) || [])[0];
+            const subjectEl = element.querySelector('.hP, .ha h2, .ha .hP'); // Subject variations
+            if (subjectEl) subject = subjectEl.innerText;
+            const bodyEls = element.querySelectorAll('.a3s.aiL, .ii.gt, div.gs div:not([style*="display:none"])'); // Body elements
+            bodyText = Array.from(bodyEls).map(el => el.innerText).filter(Boolean).join(' ');
         }
-    }
-    if (!content) {
-        const yahooBody = emailElement.querySelector('.yahoo-body-selector');
-        if (yahooBody) content = yahooBody.innerText;
-    }
+        // Outlook Specific Selectors
+        else if (type === 'outlook') {
+            let senderEl = element.querySelector('div[role="heading"] span[role="button"] > span > span, .lMFJL span, .rpHighlightAllClass div > div > div:nth-child(2) > div > div > span, .L72vd');
+            if (!senderEl) senderEl = element.querySelector('[data-o oamenattrname="PersonaId"]'); // Try data attribute
+            if (senderEl?.textContent) senderEmail = (senderEl.textContent.match(emailRegex) || [])[0];
+             if (!senderEmail) { // Another common pattern
+                 const senderParent = element.querySelector('div[role="heading"]');
+                 if(senderParent) senderEmail = (senderParent.querySelector('span[role="button"] > span > span')?.textContent?.match(emailRegex) || [])[0];
+             }
+            const subjectEl = element.querySelector('[role="heading"][aria-label*="Subject"], [data-testid="subject-line-text"], .wide-content-host div[role="main"] div[draggable="false"] div:first-child > span, ._3_h_>span');
+            if (subjectEl) subject = subjectEl.innerText;
 
-    // Basic cleanup
-    content = content.replace(/\s+/g, ' ').trim(); // Normalize whitespace
+             // FIX: Updated querySelectorAll for Outlook body, handling invalid selectors gracefully
+             const bodySelectors = ['[class*="rps_"]', '.PlainText', '.ZoomReadable', '.elementToProof', 'div[role="document"] .ReadWriteField', '.read-mode-content', '.WordSection1'];
+             for (const selector of bodySelectors) {
+                 try {
+                     const bodyContainer = element.querySelector(selector);
+                     if (bodyContainer) { bodyText = bodyContainer.innerText; break; }
+                 } catch (e) { /* Ignore invalid selector and continue */ }
+             }
+            if(!bodyText) { // Fallback: Get text from main content area
+                 const mainContentArea = element.querySelector('[role="main"], #Item.Body');
+                 if (mainContentArea) bodyText = mainContentArea.innerText;
+            }
 
-    console.log(`Content Script: Extracted - Sender: ${sender}, Content Length: ${content.length}`);
-    return { senderEmail: sender, emailContent: content };
+        }
+        // Yahoo Specific Selectors
+        else if (type === 'yahoo') {
+            const senderEl = element.querySelector('[data-test-id="message-sender"], .sender span[role="button"]');
+            if (senderEl) senderEmail = (senderEl.textContent.match(emailRegex) || [])[0];
+            const subjectEl = element.querySelector('[data-test-id="message-subject"], .subject h2');
+            if (subjectEl) subject = subjectEl.innerText;
+            const bodyEl = element.querySelector('.SigmaMessage-body, .thread-body, .yahoo-style-wrap');
+            if (bodyEl) bodyText = bodyEl.innerText;
+        }
+    } catch (e) { console.warn("CS: Error extracting details:", e); }
+
+    // Limit content length to avoid sending huge amounts of data
+    const MAX_CONTENT_LENGTH = 7000;
+    bodyText = bodyText.replace(/\s+/g, ' ').trim().substring(0, MAX_CONTENT_LENGTH);
+
+    return {
+        senderEmail: senderEmail?.toLowerCase() || null,
+        emailSubject: subject.trim(),
+        emailContent: bodyText
+    };
 }
 
-function showWarningBanner(emailElement, reason, keywords = []) {
-    if (!emailElement) return;
+// Function to create and show the warning popup
+function createContentPopupElement(messageText, typeText) {
+    removeContentPopupElement(); // Remove any existing popup first
+    const popup = document.createElement('div');
+    popup.id = WARNING_POPUP_ID_CONTENT_SCRIPT;
+    popup.className = 'phishing-guard-popup-content-script';
 
-    // Remove existing banner first
-    removeWarningBanner(emailElement);
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'phg-popup-message-content-script';
+    messageDiv.innerHTML = `⚠️ <strong>Cảnh báo ${typeText}!</strong><br>${messageText}`;
+    popup.appendChild(messageDiv);
 
-    console.log("Content Script: Showing warning banner for:", emailElement);
+    const closeButton = document.createElement('button');
+    closeButton.className = 'phg-popup-button-content-script';
+    closeButton.textContent = 'Tôi đã hiểu';
+    closeButton.onclick = removeContentPopupElement; // Set click handler
+    popup.appendChild(closeButton);
 
-    const banner = document.createElement('div');
-    banner.id = WARNING_BANNER_ID;
-    banner.className = 'phishing-guard-warning-banner-content'; // Use class from content.css
+    document.body.appendChild(popup);
+    // Trigger animation
+    requestAnimationFrame(() => {
+         popup.classList.add('phg-popup-visible');
+    });
+}
 
-    let message = `⚠️ **Cảnh báo Lừa đảo:** ${reason}`;
-    if (keywords.length > 0) {
-        message += `<br><small>Các từ khóa đáng ngờ được tìm thấy: ${keywords.slice(0, 5).join(', ')}${keywords.length > 5 ? '...' : ''}</small>`;
-    }
-
-    banner.innerHTML = message;
-
-    // Find the best place to insert the banner (e.g., before the email body)
-    // This is highly dependent on the mail client's structure.
-    let insertLocation = emailElement.querySelector('.adn.ads, .aCi, .Bs.nH.iY, .YD.aeF, .gs, .nH.if .ha, .conductorContent'); // Try various potential locations in Gmail/Outlook
-    if (!insertLocation) {
-        insertLocation = emailElement.firstChild; // Fallback: insert at the beginning
-    }
-
-    if (insertLocation) {
-         // Insert *before* the found location or as the first child
-         if (insertLocation === emailElement.firstChild) {
-              emailElement.prepend(banner);
-         } else {
-              insertLocation.parentNode.insertBefore(banner, insertLocation);
-         }
-        console.log("Content Script: Warning banner inserted.");
-    } else {
-        console.error("Content Script: Could not find suitable location to insert warning banner.");
-        emailElement.prepend(banner); // Fallback insert
+// Function to remove the warning popup
+function removeContentPopupElement() {
+    const existingPopup = document.getElementById(WARNING_POPUP_ID_CONTENT_SCRIPT);
+    if (existingPopup) {
+        existingPopup.classList.remove('phg-popup-visible'); // Start fade out
+        // Remove from DOM after animation
+        setTimeout(() => {
+            if(existingPopup) existingPopup.remove();
+        }, 300); // Match transition duration
     }
 }
 
-function removeWarningBanner(emailElement) {
-    if (!emailElement) return;
-    const existingBanner = emailElement.querySelector(`#${WARNING_BANNER_ID}`);
-    if (existingBanner) {
-        existingBanner.remove();
-        console.log("Content Script: Removed existing warning banner.");
-    }
-}
+// Main function to process a detected email element
+async function processEmailElementForPhishing(emailElementContext) {
+    if (!emailElementContext?.element || emailElementContext.element.hasAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT)) return;
 
-async function checkEmail(emailElement) {
-    if (!emailElement || emailElement.hasAttribute(CHECKED_EMAIL_ATTR)) {
-        return; // Already checked or invalid element
-    }
+    emailElementContext.element.setAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT, 'true');
+    const { senderEmail, emailSubject, emailContent } = extractDetailsFromEmailContext(emailElementContext);
 
-    // Mark as checked to prevent re-processing immediately
-    emailElement.setAttribute(CHECKED_EMAIL_ATTR, 'true');
-    console.log("Content Script: Checking email element:", emailElement);
-
-    const { senderEmail, emailContent } = extractEmailDetails(emailElement);
-
-    if (!senderEmail && !emailContent) {
-        console.log("Content Script: Could not extract sender or content. Skipping check.");
-        // Maybe remove attribute if extraction failed?
-        emailElement.removeAttribute(CHECKED_EMAIL_ATTR);
+    // Only proceed if we have some data to check
+    if (!senderEmail && !emailContent && !emailSubject) {
+        emailElementContext.element.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT);
         return;
     }
 
-    // Remove any previous banner before sending request
-    removeWarningBanner(emailElement);
-
     try {
-        console.log(`Content Script: Sending 'checkEmailDetails' to background - Sender: ${senderEmail}, Content Length: ${emailContent?.length}`);
-        const response = await chrome.runtime.sendMessage({
-            action: 'checkEmailDetails',
-            senderEmail: senderEmail,
-            emailContent: emailContent // Send extracted content
-        });
+        // Ensure chrome API is available before sending
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            const response = await chrome.runtime.sendMessage({
+                action: 'checkEmailDetails', senderEmail, emailSubject, emailContent
+            });
 
-        console.log("Content Script: Received response from background:", response);
-
-        if (chrome.runtime.lastError) {
-            console.error("Content Script: Error sending message to background:", chrome.runtime.lastError);
-            // Optionally display an error message?
-            removeWarningBanner(emailElement); // Ensure no stale banner
-        } else if (response && response.isPhishing) {
-            let reason = response.senderReason || 'Nội dung hoặc người gửi đáng ngờ.';
-            if(response.contentScan?.hasSuspiciousKeywords && response.senderStatus !== 'blocked') {
-                 reason = `Nội dung chứa từ khóa đáng ngờ.`; // Prioritize content warning if sender was ok/invalid
-            } else if (response.senderStatus === 'blocked') {
-                 reason = `Người gửi (${senderEmail}) nằm trong danh sách chặn.`; // Prioritize sender warning
+            // Check for runtime errors after sending message
+            if (chrome.runtime.lastError) {
+                console.warn("CS: Error response from background:", chrome.runtime.lastError.message);
+                emailElementContext.element.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT);
+                return;
             }
-            showWarningBanner(emailElement, reason, response.contentScan?.keywordsFound || []);
-        } else if (response && !response.isPhishing) {
-             // Email is considered safe, ensure no warning is shown
-             console.log(`Content Script: Email from ${senderEmail} determined safe. Reason: ${response.senderReason || 'N/A'}. Content Scan: ${response.contentScan?.hasSuspiciousKeywords}`);
-             removeWarningBanner(emailElement);
-        } else if (response && response.status === 'error') {
-             console.warn("Content Script: Background script reported an error during check:", response.reason);
-             // Decide if to show a less severe warning or nothing
-             showWarningBanner(emailElement, `Lưu ý: Không thể hoàn tất kiểm tra (${response.reason})`, []);
-             removeWarningBanner(emailElement); // Safer to show nothing on error
-        } else {
-             // No action needed if safe
-             removeWarningBanner(emailElement);
-        }
 
+            // Process the response from background script
+            if (response && response.isPhishing) {
+                let reasonText = response.senderStatus === 'blocked' ? `Người gửi (${senderEmail || 'Không rõ'}) trong danh sách chặn.` : '';
+                if (response.contentScan?.hasSuspiciousKeywords) {
+                    const keywords = response.contentScan.keywordsFound.slice(0,3).join(', ') + (response.contentScan.keywordsFound.length > 3 ? '...' : '');
+                    reasonText += (reasonText ? '<br>' : '') + `Nội dung/tiêu đề chứa từ khóa đáng ngờ: ${keywords}.`;
+                }
+                if (!reasonText) reasonText = "Email này có dấu hiệu lừa đảo."; // Fallback reason
+                createContentPopupElement(reasonText, 'Email');
+            } else {
+                removeContentPopupElement(); // Email is safe, remove any existing popup
+            }
+        } else {
+            console.warn("CS: Chrome runtime not available to send message.");
+            emailElementContext.element.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT);
+        }
     } catch (error) {
-        console.error("Content Script: Exception during email check:", error);
-        // Ensure banner is removed on error
-        removeWarningBanner(emailElement);
-    } finally {
-         // Optionally remove the checked attribute after a delay to allow re-checks if needed?
-         setTimeout(() => emailElement.removeAttribute(CHECKED_EMAIL_ATTR), 5000);
+        // Handle potential errors during message sending or processing
+        if (error.message?.includes("Receiving end does not exist")) {
+            console.warn("CS: Background not ready. Check extension state.");
+        } else {
+            console.error("CS: Exception during email check:", error);
+        }
+        emailElementContext.element.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT); // Allow re-check later
     }
 }
 
-// --- Event Listeners & Observers ---
-
-// Use MutationObserver to detect when emails are opened/rendered in the DOM.
-// This is more reliable than click listeners in complex web apps.
-const observer = new MutationObserver(mutations => {
-    let emailToCheck = null;
-
-    for (const mutation of mutations) {
-         // Check added nodes for potential email containers
-        for (const node of mutation.addedNodes) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                 // Check if the added node itself is an email container
-                 const container = findEmailContainer(node);
-                 if (container && !container.hasAttribute(CHECKED_EMAIL_ATTR)) {
-                     emailToCheck = container;
-                     break; // Found one
-                 }
-                 // Check if children of the added node contain an email container
-                 const childContainer = node.querySelector('.nH.bkK, .nH.if, [role="main"] .IzmLX, .wide-content-host'); // Add selectors here
-                 if(childContainer && !childContainer.hasAttribute(CHECKED_EMAIL_ATTR)) {
-                      emailToCheck = childContainer;
-                      break;
-                 }
-            }
-        }
-         if (emailToCheck) break;
-
-         // Also check if the *target* of the mutation (or its parent) looks like an email container
-         // This helps catch updates within an already loaded email view
-         if (!emailToCheck && mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE) {
-             const targetContainer = findEmailContainer(mutation.target);
-             if (targetContainer && !targetContainer.hasAttribute(CHECKED_EMAIL_ATTR)) {
-                  // Check if the mutation likely indicates the email content became visible/changed
-                  // Example: check for changes in style attribute, class list, or specific child nodes
-                 if (mutation.type === 'attributes' || mutation.type === 'childList') {
-                      emailToCheck = targetContainer;
-                      break;
-                 }
+// Observer to detect changes in the DOM (like opening an email)
+// Use mutationsList parameter to satisfy linters if needed, even if not directly used in loop
+const mainMutationObserver = new MutationObserver((mutationsList) => {
+    // Debounce processing to avoid running too frequently during rapid DOM changes
+    if (emailProcessingTimeoutId) clearTimeout(emailProcessingTimeoutId);
+    emailProcessingTimeoutId = setTimeout(() => {
+        let activeEmailContext = null;
+        // Selectors to find potentially active email views
+        const potentialViewSelectors = [
+            '.nH.bkK:not([style*="display: none"])', '.nH.if:not([style*="display: none"])', '.UI:not([style*="display: none"])', '.Cp:not([style*="display: none"])', '.aeF:not([style*="display: none"])', '.apv', // Gmail
+            '[role="main"] .allowTextSelection:not([style*="display: none"])', '.wide-content-host:not([style*="display: none"])', '.BkRhG:not([style*="display: none"])', '#Item\\.Content', // Outlook
+            '.eml-display:not([style*="display: none"])', '#message-viewer:not([style*="display: none"])', '.ThreadView-container:not([style*="display: none"])' // Yahoo
+        ];
+        for (const selector of potentialViewSelectors) {
+             // Check multiple elements in case querySelectorAll is better
+             const elements = document.querySelectorAll(selector);
+             for(const elem of elements){
+                // Basic visibility check (might need refinement)
+                if (elem.offsetParent !== null && elem.clientHeight > 50) { // Check if element is rendered and has some height
+                     activeEmailContext = findEmailContextForProcessing(elem);
+                     if (activeEmailContext) break; // Found one
+                }
              }
-         }
-         if (emailToCheck) break;
-    }
+             if(activeEmailContext) break;
+        }
 
-
-    if (emailToCheck && emailToCheck !== currentVisibleEmailElement) {
-        // Debounce the check to avoid rapid firing during rendering
-        clearTimeout(emailCheckTimeout);
-        currentVisibleEmailElement = emailToCheck; // Store the element we intend to check
-        console.log("Content Script: Detected potential email view change. Debouncing check for:", currentVisibleEmailElement);
-
-        emailCheckTimeout = setTimeout(() => {
-            if (currentVisibleEmailElement) { // Check if still relevant
-                 // Double check if it's still in the DOM before checking
-                 if (document.body.contains(currentVisibleEmailElement)) {
-                      checkEmail(currentVisibleEmailElement);
-                 } else {
-                      console.log("Content Script: Email element removed from DOM before check could run.");
-                      currentVisibleEmailElement = null; // Reset
-                 }
-            }
-        }, EMAIL_BODY_CHECK_DELAY_MS); // Wait a bit for content to settle
-    } else if (!emailToCheck) {
-         // Maybe clear currentVisibleEmailElement if no email seems active?
-         // currentVisibleEmailElement = null;
-    }
+        // Process if a new visible email element is found
+        if (activeEmailContext && activeEmailContext.element !== lastProcessedVisibleEmailElement) {
+            if (lastProcessedVisibleEmailElement) lastProcessedVisibleEmailElement.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT);
+            processEmailElementForPhishing(activeEmailContext);
+            lastProcessedVisibleEmailElement = activeEmailContext.element;
+        } else if (activeEmailContext && activeEmailContext.element === lastProcessedVisibleEmailElement && !activeEmailContext.element.hasAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT)){
+            // Re-process if the attribute was removed or missed
+            processEmailElementForPhishing(activeEmailContext);
+        } else if (!activeEmailContext && lastProcessedVisibleEmailElement) {
+            // If no active email view is found, clear the last processed element reference
+             lastProcessedVisibleEmailElement.removeAttribute(CHECKED_EMAIL_ELEMENT_ATTR_CONTENT);
+             lastProcessedVisibleEmailElement = null;
+             removeContentPopupElement(); // Remove popup if email view is closed/navigated away
+        }
+    }, EMAIL_PROCESS_DEBOUNCE_MS);
 });
 
-// Start observing the document body for changes
-observer.observe(document.body, {
-    childList: true,  // Watch for nodes being added or removed
-    subtree: true,    // Watch the entire DOM tree under the target
-    attributes: true, // Watch for attribute changes (e.g., style, class affecting visibility)
-    attributeFilter: ['style', 'class'] // Optional: only observe specific attributes
+// Start observing
+mainMutationObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'hidden'] // Observe relevant attributes
 });
 
-console.log("Phishing Guard Content Script Observer Started.");
-
-// Initial check in case an email is already open when the script loads
-// Use a small delay to let the page fully render
+// Initial check on load
 setTimeout(() => {
-     console.log("Content Script: Performing initial check for open emails...");
-     const potentialContainers = document.querySelectorAll('.nH.bkK, .nH.if, [role="main"] .IzmLX, .wide-content-host'); // Add more selectors
-     potentialContainers.forEach(container => {
-          // Check if the container seems visible/active
-          if (container.offsetParent !== null && !container.hasAttribute(CHECKED_EMAIL_ATTR)) { // Check if visible
-               checkEmail(container);
-          }
-     });
-}, 2000);
+    const initialView = document.querySelector('.nH.bkK, .nH.if, .UI, [role="main"] .allowTextSelection, .wide-content-host, .eml-display, #message-viewer');
+    if(initialView){
+        const context = findEmailContextForProcessing(initialView);
+        if(context){ processEmailElementForPhishing(context); lastProcessedVisibleEmailElement = context.element;}
+    }
+}, 2500);
