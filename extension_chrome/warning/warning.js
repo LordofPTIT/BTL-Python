@@ -3,8 +3,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const blockedUrl = params.get('url');
     const listName = params.get('listName');
     const reason = params.get('reason');
-    const tabIdParam = params.get('tabId'); // tabId is a string from URL param
-    const prevSafeUrl = params.get('prevSafeUrl') || 'chrome://newtab'; // Get the previous safe URL
+    const tabIdParam = params.get('tabId');
+    const prevSafeUrl = params.get('prevSafeUrl') || 'chrome://newtab';
 
     document.getElementById('blocked-url').textContent = blockedUrl || 'Không có URL';
     document.getElementById('list-name').textContent = listName || 'Không rõ nguồn gốc';
@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const proceedAnywayButton = document.getElementById('proceed-anyway');
 
     goBackButton.addEventListener('click', function () {
-        // Ưu tiên quay lại prevSafeUrl nếu có và hợp lệ
         if (prevSafeUrl && (prevSafeUrl.startsWith('http:') || prevSafeUrl.startsWith('https:') || prevSafeUrl === 'chrome://newtab' || prevSafeUrl === 'about:blank')) {
             window.location.href = prevSafeUrl;
         } else if (tabIdParam && parseInt(tabIdParam)) {
@@ -46,18 +45,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
             chrome.runtime.sendMessage({
                 action: "markAsSafeAndReport",
-                domainToMarkSafe: domainToMarkSafe, // Domain để thêm vào allowlist cục bộ
-                data: { // Dữ liệu để gửi báo cáo false positive lên backend
+                domainToMarkSafe: domainToMarkSafe,
+                data: {
                     report_type: `false_positive_domain`,
-                    value: blockedUrl.toLowerCase(), // URL gốc bị chặn
+                    value: blockedUrl.toLowerCase(),
                     source_url: blockedUrl,
                     context: `Reported as safe from warning page by user.`
                 }
             }, function(response) {
                 if (response && response.success) {
                     alert(`Đã ghi nhận "${domainToMarkSafe}" là an toàn và gửi báo cáo. Trang sẽ không bị chặn nữa. Bạn có thể cần tải lại trang đích.`);
-                    // Tùy chọn: tự động điều hướng hoặc cho phép người dùng tự điều hướng
-                    // window.location.href = blockedUrl;
+                    window.location.href = blockedUrl;
                     reportFalsePositiveButton.textContent = "Đã báo cáo an toàn";
                     reportFalsePositiveButton.disabled = true;
                     proceedAnywayButton.textContent = "Tiếp tục truy cập (Đã cho phép)";

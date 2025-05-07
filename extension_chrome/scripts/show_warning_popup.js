@@ -1,15 +1,12 @@
-// This script is injected into pages identified as potentially malicious by background.js
-
 (function() {
     const POPUP_ID = 'phishing-guard-domain-warning-popup';
-    let warningData = null; // To store data received from background
+    let warningData = null;
 
     function createPopup(type, item, fullUrl, reason) {
-        if (document.getElementById(POPUP_ID)) return; // Popup already exists
+        if (document.getElementById(POPUP_ID)) return;
 
         const popup = document.createElement('div');
         popup.id = POPUP_ID;
-        // Apply styles via JS to avoid needing separate CSS for this simple case, or link to shared CSS
         Object.assign(popup.style, {
             position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
             backgroundColor: 'rgba(0,0,0,0.7)', zIndex: '2147483646',
@@ -44,18 +41,14 @@
             padding: '10px 15px', margin: '5px', borderRadius: '5px', cursor: 'pointer'
         });
         proceedButton.onclick = () => {
-            // Send message to background to temporarily allow this domain for the session
             chrome.runtime.sendMessage({ action: 'addTemporaryAllowDomain', domain: item }, (response) => {
                 if (response && response.success) {
                     popup.remove();
-                    // Optionally, reload the page if the request was truly blocked and needs to be re-attempted.
-                    // However, since we are not blocking, just removing popup is enough.
-                    // window.location.reload(); // If original request was fully blocked by a redirect
                 } else {
                     alert('Không thể bỏ qua cảnh báo tạm thời. Lỗi: ' + (response?.error || 'Không rõ'));
                 }
             });
-            popup.remove(); // Remove popup immediately for better UX
+            popup.remove();
         };
         buttonContainer.appendChild(proceedButton);
 
@@ -66,7 +59,6 @@
             padding: '10px 15px', margin: '5px', borderRadius: '5px', cursor: 'pointer'
         });
         backButton.onclick = () => {
-            // Try to go back, if not possible, redirect to a safe page like about:blank or extension's newtab
             if (window.history.length > 1) {
                 window.history.back();
             } else {
@@ -86,7 +78,7 @@
             createPopup(message.type, message.blockedItem, message.fullUrl, message.reason);
             sendResponse({ status: "domain warning popup shown" });
         }
-        return true; // Indicate async response potential if needed for other messages
+        return true;
     });
 
 })();

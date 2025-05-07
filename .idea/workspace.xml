@@ -5,7 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/background.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/background.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/show_warning_popup.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/show_warning_popup.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension_chrome/warning/warning.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/warning/warning.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -187,7 +189,7 @@
       <workItem from="1746364296321" duration="15528000" />
       <workItem from="1746453560006" duration="10679000" />
       <workItem from="1746515480802" duration="4948000" />
-      <workItem from="1746525840500" duration="23650000" />
+      <workItem from="1746525840500" duration="26784000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
