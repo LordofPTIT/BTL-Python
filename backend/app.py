@@ -215,4 +215,4 @@ if __name__ == '__main__':
                 dt_k_n = f"{list_type_n}_{item_type_n}s";
                 if not db.session.execute(select(DataVersion).filter_by(data_type=dt_k_n)).scalar_one_or_none(): update_data_version(dt_k_n)
         logger.info("DataVersion table checked/populated.")
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5001)), debug=(os.getenv('FLASK_ENV') == 'development'))
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=(os.getenv('FLASK_ENV') == 'development'))

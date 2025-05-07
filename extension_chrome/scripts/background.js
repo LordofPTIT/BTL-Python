@@ -364,7 +364,7 @@ function showCustomNotificationOrWarningPage(tabId, url, listName, reason, refer
                 buttons: [{ title: 'Xem chi tiết cảnh báo' }]
             });
         } else {
-            let prevSafeUrl = 'chrome://newtab'; // Default safe page
+            let prevSafeUrl = 'chrome://newtab';
             if (tabId) {
                 try {
                     const tab = await chrome.tabs.get(tabId);
