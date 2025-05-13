@@ -4,12 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/instance/local_phishing_guard.db" beforeDir="false" afterPath="$PROJECT_DIR$/backend/instance/local_phishing_guard.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/content.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/content.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/warning/warning.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/warning/warning.js" afterDir="false" />
-    </list>
+    <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -197,7 +192,7 @@
       <workItem from="1747105547526" duration="5576000" />
       <workItem from="1747111429386" duration="6852000" />
       <workItem from="1747140125741" duration="5573000" />
-      <workItem from="1747145982534" duration="15974000" />
+      <workItem from="1747145982534" duration="16595000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />

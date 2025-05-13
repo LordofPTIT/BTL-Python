@@ -40,8 +40,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }, function(response) {
                 if (response && response.success) {
                     chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
-                        alert("Đã đánh dấu là trang an toàn");
-                        window.location.reload();
+                        chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(whitelistResp) {
+                            if (whitelistResp && whitelistResp.success) {
+                                window.location.href = blockedUrl;
+                            } else {
+                                alert("Không thể thêm vào whitelist phiên. Vui lòng thử lại.");
+                            }
+                        });
                     });
                 } else {
                     alert("Không thể báo cáo an toàn. Vui lòng thử lại.");
@@ -54,15 +59,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     proceedAnywayButton.addEventListener('click', function () {
         if (blockedUrl) {
-            chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-                const tab = tabs[0];
-                chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(response) {
-                    if (response && response.success) {
-                        window.location.href = blockedUrl;
-                    } else {
-                        alert("Không thể cho phép tạm thời. Vui lòng thử lại.");
-                    }
-                });
+            chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(response) {
+                if (response && response.success) {
+                    window.location.href = blockedUrl;
+                } else {
+                    alert("Không thể cho phép tạm thời. Vui lòng thử lại.");
+                }
             });
         } else {
             alert("Không có URL để tiếp tục.");
