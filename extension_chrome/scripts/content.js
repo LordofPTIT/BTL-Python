@@ -2,6 +2,7 @@ let SCAN_KEYWORDS = [];
 let REPORTED_MALICIOUS_EMAILS = [];
 let observer = null;
 const scannedEmailSignatures = new Set();
+const shownEmailWarnings = new Set();
 
 function getEmailSignature(subject, from, bodySample) {
     const bodyPart = bodySample.substring(0, 100);
@@ -78,12 +79,9 @@ function getEmailContent() {
 function scanEmailContent() {
     const { subject, body, from } = getEmailContent();
     if (!subject && !body && !from) return;
-
     const emailSignature = getEmailSignature(subject, from, body);
-    if (scannedEmailSignatures.has(emailSignature)) {
-        return;
-    }
-
+    if (scannedEmailSignatures.has(emailSignature)) return;
+    if (shownEmailWarnings.has(emailSignature)) return;
     let keywordFound = null;
     if (SCAN_KEYWORDS && SCAN_KEYWORDS.length > 0) {
         for (const keyword of SCAN_KEYWORDS) {
@@ -93,19 +91,15 @@ function scanEmailContent() {
             }
         }
     }
-
     if (keywordFound) {
-        console.log("VN Phishing Guard Pro: Phishing keyword found in email:", keywordFound);
-        showWarningBanner(`Email này chứa từ khóa đáng ngờ: "${keywordFound}". Hãy cẩn thận!`);
+        showWarningBanner(`Email này chứa từ khóa đáng ngờ: "${keywordFound}". Hãy cẩn thận!`, emailSignature);
         scannedEmailSignatures.add(emailSignature);
         return;
     }
-
     if (from && REPORTED_MALICIOUS_EMAILS && REPORTED_MALICIOUS_EMAILS.length > 0) {
         for (const reportedEmail of REPORTED_MALICIOUS_EMAILS) {
             if (from === reportedEmail) {
-                console.log("VN Phishing Guard Pro: Sender email is in reported malicious list:", from);
-                showWarningBanner(`Địa chỉ email người gửi (${from}) nằm trong danh sách báo cáo nguy hiểm.`);
+                showWarningBanner(`Địa chỉ email người gửi (${from}) nằm trong danh sách báo cáo nguy hiểm.`, emailSignature);
                 scannedEmailSignatures.add(emailSignature);
                 return;
             }
@@ -114,7 +108,8 @@ function scanEmailContent() {
     scannedEmailSignatures.add(emailSignature);
 }
 
-function showWarningBanner(message) {
+function showWarningBanner(message, emailSignature) {
+    if (shownEmailWarnings.has(emailSignature)) return;
     let popup = document.getElementById('phishing-warning-popup-email');
     if (!popup) {
         popup = document.createElement('div');
@@ -153,7 +148,7 @@ function showWarningBanner(message) {
         btn.style.fontSize = '1rem';
         btn.style.fontWeight = '600';
         btn.style.cursor = 'pointer';
-        btn.onclick = function() { popup.remove(); };
+        btn.onclick = function() { popup.remove(); shownEmailWarnings.add(emailSignature); };
         popup.appendChild(btn);
         document.body.appendChild(popup);
     } else {

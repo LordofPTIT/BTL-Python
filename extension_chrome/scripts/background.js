@@ -638,6 +638,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     const errorText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${errorText.substring(0,100)}`);
                 }
+                await updateLocalBlocklists();
                 chrome.notifications.create('reportSubmit-' + Date.now(), {
                     type: 'basic',
                     iconUrl: 'icons/icon-128.png',

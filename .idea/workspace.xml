@@ -6,11 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/import_domains.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/import_domains.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/background.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/background.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/content.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/content.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/scripts/show_warning_popup.js" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/scripts/show_warning_popup.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/extension_chrome/warning/warning.html" beforeDir="false" afterPath="$PROJECT_DIR$/extension_chrome/warning/warning.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -196,7 +191,7 @@
       <workItem from="1746674536177" duration="677000" />
       <workItem from="1746676272166" duration="2314000" />
       <workItem from="1747009167530" duration="1477000" />
-      <workItem from="1747105547526" duration="2291000" />
+      <workItem from="1747105547526" duration="3491000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
