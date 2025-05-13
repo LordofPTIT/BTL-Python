@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const proceedAnywayButton = document.getElementById('proceed-anyway');
 
     goBackButton.addEventListener('click', function () {
-        window.history.back();
+        window.location.href = 'https://www.google.com/';
     });
 
     reportFalsePositiveButton.addEventListener('click', function() {
