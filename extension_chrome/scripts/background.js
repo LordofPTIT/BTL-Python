@@ -342,10 +342,8 @@ function showCustomNotificationOrWarningPage(tabId, url, listName, reason, refer
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
     if (notificationId.startsWith('phishingNotif-') && buttonIndex === 0) {
         if (currentPhishingUrl && currentTabId) {
-            // Logic để lấy prevSafeUrl tương tự như trong showCustomNotificationOrWarningPage
-            // Cần đảm bảo referrer hoặc thông tin tab trước đó có sẵn ở đây nếu cần
-            let prevSafeUrlForNotif = 'chrome://newtab'; // Fallback
-            // Giả sử currentTabId và currentPhishingUrl là đủ, và warning.js sẽ xử lý logic quay lại
+            
+            let prevSafeUrlForNotif = 'chrome://newtab'; 
 
             const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
                 `?url=${encodeURIComponent(currentPhishingUrl)}` +
