@@ -80,6 +80,7 @@ function scanEmailContent() {
     const { subject, body, from } = getEmailContent();
     if (!subject && !body && !from) return;
     const emailSignature = getEmailSignature(subject, from, body);
+    if (sessionStorage.getItem('phishingWarned_' + emailSignature)) return;
     if (scannedEmailSignatures.has(emailSignature)) return;
     if (shownEmailWarnings.has(emailSignature)) return;
     let keywordFound = null;
@@ -91,19 +92,19 @@ function scanEmailContent() {
             }
         }
     }
-    if (keywordFound) {
-        showWarningBanner(`Email này chứa từ khóa đáng ngờ: "${keywordFound}". Hãy cẩn thận!`, emailSignature);
-        scannedEmailSignatures.add(emailSignature);
-        return;
-    }
     if (from && REPORTED_MALICIOUS_EMAILS && REPORTED_MALICIOUS_EMAILS.length > 0) {
         for (const reportedEmail of REPORTED_MALICIOUS_EMAILS) {
             if (from === reportedEmail) {
-                showWarningBanner(`Địa chỉ email người gửi (${from}) nằm trong danh sách báo cáo nguy hiểm.`, emailSignature);
+                showWarningBanner('Đây là email có trong danh sách cảnh báo.', emailSignature);
                 scannedEmailSignatures.add(emailSignature);
                 return;
             }
         }
+    }
+    if (keywordFound) {
+        showWarningBanner(`Email này chứa từ khóa đáng ngờ: "${keywordFound}". Hãy cẩn thận!`, emailSignature);
+        scannedEmailSignatures.add(emailSignature);
+        return;
     }
     scannedEmailSignatures.add(emailSignature);
 }
@@ -204,3 +205,7 @@ new MutationObserver(() => {
         if (k && k.startsWith('phishingWarned_')) shownEmailWarnings.add(k.replace('phishingWarned_', ''));
     }
 })();
+
+window.addEventListener('beforeunload', () => {
+    scannedEmailSignatures.clear();
+});
