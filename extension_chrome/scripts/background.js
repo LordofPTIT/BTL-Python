@@ -212,14 +212,14 @@ async function updateLocalBlocklists() {
     console.log("Combined local blocklist rules updated and stored.", combinedRules.length, "rules processed.");
 }
 
-async function isUrlTemporarilyAllowed(urlString) {
-    if (!urlString) return false;
+async function isUrlTemporarilyAllowed(urlString, tabId) {
+    if (!urlString || tabId === undefined || tabId === null) return false;
     try {
-        const data = await chrome.storage.session.get('sessionWhitelistedUrls');
-        const sessionWhitelistedUrls = data.sessionWhitelistedUrls || [];
+        const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
+        const sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
         const urlObj = new URL(urlString);
         const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-        return sessionWhitelistedUrls.includes(hostname);
+        return Array.isArray(sessionWhitelistedUrlsPerTab[tabId]) && sessionWhitelistedUrlsPerTab[tabId].includes(hostname);
     } catch (error) {
         return false;
     }
@@ -232,7 +232,7 @@ async function checkUrlAgainstLocalLists(tabId, url) {
     const urlObj = new URL(url);
     const domainToCheck = urlObj.hostname.toLowerCase().replace(/^www\./, '');
     
-    if (await isUrlTemporarilyAllowed(url)) {
+    if (await isUrlTemporarilyAllowed(url, tabId)) {
         return {isPhishing: false, reason: "Đã được người dùng cho phép tạm thời trong phiên này."};
     }
     try {
@@ -266,7 +266,7 @@ async function checkUrlWithBackend(tabId, urlString) {
     const urlObj = new URL(urlString);
     const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
 
-    if (await isUrlTemporarilyAllowed(urlString)) {
+    if (await isUrlTemporarilyAllowed(urlString, tabId)) {
         return {isPhishing: false, reason: "Đã được người dùng cho phép tạm thời trong phiên này."};
     }
     try {
@@ -302,6 +302,15 @@ async function handleUrlCheck(tabId, url, referrer) {
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Khi tab reload hoặc chuyển domain, xóa whitelist tạm thời của tab đó
+    if (changeInfo.status === 'loading') {
+        const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
+        let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
+        if (sessionWhitelistedUrlsPerTab[tabId]) {
+            delete sessionWhitelistedUrlsPerTab[tabId];
+            await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
+        }
+    }
     if (changeInfo.status === 'complete' && tab.url && tab.active) {
         currentPhishingUrl = tab.url;
         currentTabId = tabId;
@@ -468,20 +477,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         } else if (request.action === "addToSessionWhitelist") {
             const urlToWhitelist = request.url;
-            if (urlToWhitelist) {
-                const data = await chrome.storage.session.get('sessionWhitelistedUrls');
-                let sessionWhitelistedUrls = data.sessionWhitelistedUrls || [];
-                try {
-                    const urlObj = new URL(urlToWhitelist);
-                    const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-                    if (!sessionWhitelistedUrls.includes(hostname)) {
-                        sessionWhitelistedUrls.push(hostname);
-                    }
-                } catch (e) {}
-                await chrome.storage.session.set({ sessionWhitelistedUrls: sessionWhitelistedUrls });
+            const tabId = sender.tab ? sender.tab.id : null;
+            if (urlToWhitelist && tabId !== null) {
+                const urlObj = new URL(urlToWhitelist);
+                const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                // Lưu whitelist tạm thời theo tabId
+                const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
+                let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
+                if (!sessionWhitelistedUrlsPerTab[tabId]) sessionWhitelistedUrlsPerTab[tabId] = [];
+                if (!sessionWhitelistedUrlsPerTab[tabId].includes(hostname)) {
+                    sessionWhitelistedUrlsPerTab[tabId].push(hostname);
+                }
+                await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
                 sendResponse({ success: true });
             } else {
-                sendResponse({ success: false, error: "No URL provided" });
+                sendResponse({ success: false, error: "No URL or tabId provided" });
             }
         } else if (request.action === "settingsUpdated") {
              console.log("Received settingsUpdated message, reloading API base URL.");
