@@ -1,32 +1,80 @@
 <!DOCTYPE html>
-<html lang="">
+<html>
 <head>
     <meta charset="UTF-8">
     <title>VN Phishing Guard Pro</title>
-    <link rel="stylesheet" href="popup.css">
+    <style>
+        body {
+            width: 300px;
+            padding: 15px;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .report-section {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .report-section h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 8px;
+            background-color: #2da44e;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2c974b;
+        }
+        .result {
+            margin-top: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+        .api-status {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
-    <div class="header">
-        <img src="../icons/icon-48.png" alt="Icon">
-        <h1>VN Phishing Guard Pro</h1>
-    </div>
-    <div class="status-section">
-        <h2>Báo cáo email cần chặn</h2>
-        <input id="report-email-input" type="email" placeholder="Nhập email cần chặn" style="width:100%;margin-bottom:8px;">
-        <button id="report-email-btn">Cập nhật email</button>
-        <div id="report-email-result" style="margin-top:6px;font-size:0.95em;"></div>
-    </div>
-    <div class="status-section">
-        <h2>Báo cáo domain cần chặn</h2>
-        <input id="report-domain-input" type="text" placeholder="Nhập domain cần chặn" style="width:100%;margin-bottom:8px;">
-        <button id="report-domain-btn">Cập nhật domain</button>
-        <div id="report-domain-result" style="margin-top:6px;font-size:0.95em;"></div>
-    </div>
-    <div class="api-status">
-        API Status: <span id="api-indicator"></span> <span id="api-text">Đang kiểm tra...</span>
-    </div>
-    <div class="footer">
-        <a href="../options/options.html" target="_blank" id="options-link">Cài đặt</a>
+    <div class="container">
+        <div class="report-section">
+            <h3>Báo cáo Email độc hại</h3>
+            <input type="email" id="reportEmailInput" placeholder="Nhập email cần báo cáo">
+            <button id="reportEmailButton">Báo cáo Email</button>
+            <div id="reportEmailResult" class="result"></div>
+        </div>
+
+        <div class="report-section">
+            <h3>Báo cáo Domain độc hại</h3>
+            <input type="text" id="reportDomainInput" placeholder="Nhập domain cần báo cáo">
+            <button id="reportDomainButton">Báo cáo Domain</button>
+            <div id="reportDomainResult" class="result"></div>
+        </div>
+
+        <div class="api-status" id="apiStatus">
+            Đang kiểm tra kết nối API...
+        </div>
     </div>
     <script src="popup.js"></script>
 </body>

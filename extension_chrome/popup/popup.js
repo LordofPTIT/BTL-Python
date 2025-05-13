@@ -1,13 +1,13 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async function() {
     const apiIndicator = document.getElementById('api-indicator');
     const apiText = document.getElementById('api-text');
     const optionsLink = document.getElementById('options-link');
-    const reportEmailInput = document.getElementById('report-email-input');
-    const reportEmailBtn = document.getElementById('report-email-btn');
-    const reportEmailResult = document.getElementById('report-email-result');
-    const reportDomainInput = document.getElementById('report-domain-input');
-    const reportDomainBtn = document.getElementById('report-domain-btn');
-    const reportDomainResult = document.getElementById('report-domain-result');
+    const reportEmailInput = document.getElementById('reportEmailInput');
+    const reportEmailButton = document.getElementById('reportEmailButton');
+    const reportEmailResult = document.getElementById('reportEmailResult');
+    const reportDomainInput = document.getElementById('reportDomainInput');
+    const reportDomainButton = document.getElementById('reportDomainButton');
+    const reportDomainResult = document.getElementById('reportDomainResult');
 
     optionsLink.addEventListener('click', (e) => {
         e.preventDefault();
@@ -24,65 +24,68 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    chrome.runtime.sendMessage({ action: 'getApiStatus' }, (response) => {
-        if (chrome.runtime.lastError) {
-            setApiStatus(false);
-            return;
-        }
-        setApiStatus(response && response.reachable);
-    });
+    try {
+        const response = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
+        setApiStatus(response.reachable);
+    } catch (error) {
+        console.error('Error checking API status:', error);
+    }
 
-    reportEmailBtn.addEventListener('click', () => {
+    // Xử lý báo cáo email
+    reportEmailButton.addEventListener('click', async function() {
         const email = reportEmailInput.value.trim().toLowerCase();
-        reportEmailResult.textContent = '';
-        if (!email || !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
-            reportEmailResult.textContent = 'Email không hợp lệ.';
-            reportEmailResult.style.color = '#cf222e';
+        if (!email) {
+            reportEmailResult.textContent = 'Vui lòng nhập email cần báo cáo';
             return;
         }
-        reportEmailBtn.disabled = true;
-        chrome.runtime.sendMessage({
-            action: 'reportItem',
-            type: 'email',
-            value: email,
-            context: 'Popup report email'
-        }, (response) => {
-            reportEmailBtn.disabled = false;
-            if (chrome.runtime.lastError || !response?.success) {
-                reportEmailResult.textContent = 'Lỗi cập nhật. Vui lòng thử lại.';
-                reportEmailResult.style.color = '#cf222e';
-            } else {
-                reportEmailResult.textContent = 'Đã cập nhật email vào danh sách chặn!';
-                reportEmailResult.style.color = '#2da44e';
+
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'reportToBackend',
+                data: {
+                    report_type: 'suspicious_email',
+                    value: email,
+                    context: 'Reported from popup'
+                }
+            });
+
+            if (response.success) {
+                reportEmailResult.textContent = 'Đã báo cáo email thành công!';
                 reportEmailInput.value = '';
+            } else {
+                reportEmailResult.textContent = `Lỗi: ${response.error || 'Không thể báo cáo email'}`;
             }
-        });
+        } catch (error) {
+            reportEmailResult.textContent = `Lỗi: ${error.message}`;
+        }
     });
 
-    reportDomainBtn.addEventListener('click', () => {
+    // Xử lý báo cáo domain
+    reportDomainButton.addEventListener('click', async function() {
         const domain = reportDomainInput.value.trim().toLowerCase();
-        reportDomainResult.textContent = '';
-        if (!domain || !/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
-            reportDomainResult.textContent = 'Domain không hợp lệ.';
-            reportDomainResult.style.color = '#cf222e';
+        if (!domain) {
+            reportDomainResult.textContent = 'Vui lòng nhập domain cần báo cáo';
             return;
         }
-        reportDomainBtn.disabled = true;
-        chrome.runtime.sendMessage({
-            action: 'reportItem',
-            type: 'domain',
-            value: domain,
-            context: 'Popup report domain'
-        }, (response) => {
-            reportDomainBtn.disabled = false;
-            if (chrome.runtime.lastError || !response?.success) {
-                reportDomainResult.textContent = 'Lỗi cập nhật. Vui lòng thử lại.';
-                reportDomainResult.style.color = '#cf222e';
-            } else {
-                reportDomainResult.textContent = 'Đã cập nhật domain vào danh sách chặn!';
-                reportDomainResult.style.color = '#2da44e';
+
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'reportToBackend',
+                data: {
+                    report_type: 'suspicious_domain',
+                    value: domain,
+                    context: 'Reported from popup'
+                }
+            });
+
+            if (response.success) {
+                reportDomainResult.textContent = 'Đã báo cáo domain thành công!';
                 reportDomainInput.value = '';
+            } else {
+                reportDomainResult.textContent = `Lỗi: ${response.error || 'Không thể báo cáo domain'}`;
             }
-        });
+        } catch (error) {
+            reportDomainResult.textContent = `Lỗi: ${error.message}`;
+        }
     });
 });

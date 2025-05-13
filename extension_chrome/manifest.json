@@ -1,65 +1,43 @@
 {
   "manifest_version": 3,
-  "name": "VN Phishing Guard Pro (Local SQLite)",
-  "version": "2.6.1",
-  "description": "Phát hiện trang web, email lừa đảo với DB SQLite cục bộ, quét từ khóa, báo cáo người dùng và popup cảnh báo không chặn.",
+  "name": "VN Phishing Guard Pro",
+  "version": "1.0",
+  "description": "Bảo vệ người dùng khỏi các trang web và email lừa đảo",
   "permissions": [
     "storage",
     "tabs",
-    "scripting",
-    "alarms",
     "notifications",
-    "webRequest",
-    "contextMenus",
-    "webNavigation"
+    "contextMenus"
   ],
   "host_permissions": [
-    "*://*/*"
+    "http://localhost:5000/*"
   ],
   "background": {
     "service_worker": "scripts/background.js"
   },
-  "content_scripts": [
-    {
-      "matches": [
-         "*://mail.google.com/*",
-         "*://outlook.live.com/*",
-         "*://outlook.office.com/*",
-         "*://*.mail.yahoo.com/*"
-      ],
-      "js": ["scripts/content.js"],
-      "css": ["styles/content.css"],
-      "run_at": "document_idle"
-    }
-  ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }
   },
   "icons": {
     "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_scripts/content.js"],
+      "css": ["content_scripts/content.css"]
+    }
+  ],
   "web_accessible_resources": [
     {
-      "resources": [
-        "warning/warning.html",
-        "warning/warning.css",
-        "warning/warning.js",
-        "icons/icon-48.png",
-        "data/CLDBllacklist.txt",
-        "data/phishing_keywords_vn.json",
-        "data/urls-ABP.txt",
-        "data/urls.txt"
-      ],
+      "resources": ["warning/*"],
       "matches": ["<all_urls>"]
     }
   ]

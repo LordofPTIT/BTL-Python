@@ -15,9 +15,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const proceedAnywayButton = document.getElementById('proceed-anyway');
 
     goBackButton.addEventListener('click', function () {
-        if (window.history.length > 1) {
-            window.history.go(-1);
-        } else if (prevSafeUrl && (prevSafeUrl.startsWith('http:') || prevSafeUrl.startsWith('https:'))) {
+        if (prevSafeUrl && (prevSafeUrl.startsWith('http:') || prevSafeUrl.startsWith('https:'))) {
             window.location.href = prevSafeUrl;
         } else {
             window.location.href = 'about:blank';
