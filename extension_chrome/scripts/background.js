@@ -593,7 +593,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         let reportValue = selection;
         let itemType = "";
         const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
         if (emailRegex.test(selection)) {
             itemType = "email";
             reportValue = selection.toLowerCase();
@@ -615,7 +614,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 }
             }
         }
-
         if (itemType && reportValue) {
             try {
                 const response = await fetch(`${API_BASE_URL_BG}/report`, {
@@ -625,7 +623,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                         report_type: `suspicious_${itemType}`,
                         value: reportValue,
                         source_url: tab.url,
-                        context: `User selection on page: ${selection}`
+                        context: `User selection: ${selection}`
                     })
                 });
                 const contentType = response.headers.get("content-type");
@@ -640,7 +638,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     const errorText = await response.text();
                     throw new Error(`HTTP ${response.status}: ${errorText.substring(0,100)}`);
                 }
-
                 chrome.notifications.create('reportSubmit-' + Date.now(), {
                     type: 'basic',
                     iconUrl: 'icons/icon-128.png',
@@ -649,7 +646,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     priority: 2
                 });
             } catch (error) {
-                console.error("Error submitting report via context menu:", error);
                 chrome.notifications.create('reportError-' + Date.now(), {
                     type: 'basic',
                     iconUrl: 'icons/icon-128.png',

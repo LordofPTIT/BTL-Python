@@ -181,8 +181,6 @@ if __name__ == "__main__":
         {"path": os.path.join(current_script_dir, "urls.txt"), "type": "domain"},
         {"path": os.path.join(current_script_dir, "urls-ABP.txt"), "type": "domain"},
         {"path": os.path.join(current_script_dir, "CLDBllacklist.txt"), "type": "domain"}
-        # Thêm các file email vào đây nếu có, ví dụ:
-        # {"path": os.path.join(current_script_dir, "block_emails.txt"), "type": "email"}
     ]
     overall_added, overall_skipped, overall_errors = 0, 0, 0
 
@@ -191,7 +189,7 @@ if __name__ == "__main__":
         for file_info in files_to_process:
             file_p = file_info["path"]
             item_t = file_info["type"]
-            TargetModel = BlocklistImport # Hiện tại chỉ import vào blocklist
+            TargetModel = BlocklistImport
             if not os.path.exists(file_p): logger.error(f"File not found: {file_p}. Skipping."); overall_errors += 1; continue
             added_f, skipped_f, errors_f = import_file_to_list(db_session_import, TargetModel, item_t, file_p)
             overall_added += added_f; overall_skipped += skipped_f; overall_errors += errors_f

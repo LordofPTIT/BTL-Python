@@ -115,43 +115,51 @@ function scanEmailContent() {
 }
 
 function showWarningBanner(message) {
-    let banner = document.getElementById('phishing-warning-banner');
-    if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'phishing-warning-banner';
-        banner.style.backgroundColor = 'red';
-        banner.style.color = 'white';
-        banner.style.padding = '10px';
-        banner.style.textAlign = 'center';
-        banner.style.position = 'fixed';
-        banner.style.top = '0';
-        banner.style.left = '0';
-        banner.style.width = '100%';
-        banner.style.zIndex = '999999';
-        banner.style.fontSize = '16px';
-        banner.style.fontWeight = 'bold';
-        const closeButton = document.createElement('button');
-        closeButton.textContent = 'Đã hiểu';
-        closeButton.style.marginLeft = '20px';
-        closeButton.style.padding = '5px 10px';
-        closeButton.style.color = 'red';
-        closeButton.style.backgroundColor = 'white';
-        closeButton.style.border = '1px solid red';
-        closeButton.style.cursor = 'pointer';
-        closeButton.onclick = function() {
-            banner.style.display = 'none';
-        };
-        banner.appendChild(closeButton);
-        if (document.body) {
-            document.body.insertBefore(banner, document.body.firstChild);
-        } else {
-            document.addEventListener('DOMContentLoaded', () => {
-                document.body.insertBefore(banner, document.body.firstChild);
-            });
-        }
+    let popup = document.getElementById('phishing-warning-popup-email');
+    if (!popup) {
+        popup = document.createElement('div');
+        popup.id = 'phishing-warning-popup-email';
+        popup.style.position = 'fixed';
+        popup.style.top = '50%';
+        popup.style.left = '50%';
+        popup.style.transform = 'translate(-50%, -50%)';
+        popup.style.width = '600px';
+        popup.style.height = '300px';
+        popup.style.background = '#fff3cd';
+        popup.style.color = '#856404';
+        popup.style.border = '2px solid #ffeeba';
+        popup.style.borderRadius = '12px';
+        popup.style.boxShadow = '0 8px 32px rgba(0,0,0,0.18)';
+        popup.style.display = 'flex';
+        popup.style.flexDirection = 'column';
+        popup.style.alignItems = 'center';
+        popup.style.justifyContent = 'center';
+        popup.style.zIndex = '2147483647';
+        popup.style.fontSize = '1.1rem';
+        popup.innerHTML = '';
+        var msg = document.createElement('div');
+        msg.style.marginBottom = '32px';
+        msg.style.textAlign = 'center';
+        msg.style.fontWeight = '600';
+        msg.innerText = message;
+        popup.appendChild(msg);
+        var btn = document.createElement('button');
+        btn.innerText = 'Tôi đã hiểu';
+        btn.style.padding = '12px 32px';
+        btn.style.background = '#5cb85c';
+        btn.style.color = '#fff';
+        btn.style.border = 'none';
+        btn.style.borderRadius = '6px';
+        btn.style.fontSize = '1rem';
+        btn.style.fontWeight = '600';
+        btn.style.cursor = 'pointer';
+        btn.onclick = function() { popup.remove(); };
+        popup.appendChild(btn);
+        document.body.appendChild(popup);
+    } else {
+        popup.firstChild.textContent = message;
+        popup.style.display = 'flex';
     }
-    banner.firstChild.textContent = message;
-    banner.style.display = 'block';
 }
 
 function observeEmailChanges() {

@@ -3,12 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <title>Cảnh Báo An Ninh</title>
-    <link rel="stylesheet" href="warning.css">
+    <style>
+        body { margin: 0; padding: 0; background: #f8f9fa; font-family: Arial, sans-serif; }
+        .container { width: 420px; margin: 60px auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.13); padding: 32px 32px 24px 32px; }
+        .header { display: flex; align-items: center; gap: 16px; }
+        .header img { width: 48px; height: 48px; }
+        .header h1 { font-size: 1.3rem; color: #d9534f; margin: 0; }
+        .content { margin: 18px 0 24px 0; }
+        .url-display { word-break: break-all; color: #0056b3; }
+        .recommendation { color: #b94a48; font-weight: 600; margin-top: 12px; }
+        .actions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+        .button { padding: 10px 0; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .primary-action { background: #5cb85c; color: #fff; }
+        .primary-action:hover { background: #449d44; }
+        .secondary-action { background: #0275d8; color: #fff; }
+        .secondary-action:hover { background: #025aa5; }
+        .tertiary-action { background: #f0ad4e; color: #fff; }
+        .tertiary-action:hover { background: #ec971f; }
+        .footer { text-align: center; color: #888; font-size: 0.95rem; margin-top: 10px; }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <img src="../icons/icon-48.png" alt="Biểu tượng cảnh báo" class="warning-icon">
+            <img src="../icons/icon-48.png" alt="Biểu tượng cảnh báo">
             <h1>CẢNH BÁO AN NINH NGHIÊM TRỌNG!</h1>
         </div>
         <div class="content">
@@ -16,16 +34,15 @@
             <p class="url-display"><strong>URL:</strong> <span id="blocked-url">Đang tải...</span></p>
             <p><strong>Nguồn phát hiện:</strong> <span id="list-name">Không xác định</span></p>
             <p><strong>Lý do:</strong> <span id="reason-text">Không có thông tin chi tiết.</span></p>
-
-            <p class="recommendation">Chúng tôi thực sự khuyên bạn <strong>KHÔNG NÊN</strong> tiếp tục truy cập trang này để đảm bảo an toàn cho thông tin cá nhân và thiết bị của bạn.</p>
+            <p class="recommendation">KHÔNG NÊN tiếp tục truy cập trang này để đảm bảo an toàn cho thông tin cá nhân và thiết bị của bạn.</p>
         </div>
         <div class="actions">
             <button id="go-back" class="button primary-action">Quay lại trang an toàn</button>
-            <button id="report-false-positive" class="button secondary-action">Báo cáo là an toàn (False Positive)</button>
+            <button id="report-false-positive" class="button secondary-action">Báo cáo là an toàn</button>
             <button id="proceed-anyway" class="button tertiary-action">Cho phép tạm thời & Tiếp tục truy cập</button>
         </div>
         <div class="footer">
-            <p>VN Phishing Guard Pro - Bảo vệ bạn khỏi các mối đe dọa trực tuyến.</p>
+            VN Phishing Guard Pro - Bảo vệ bạn khỏi các mối đe dọa trực tuyến.
         </div>
     </div>
     <script src="warning.js"></script>
