@@ -148,7 +148,7 @@ function showWarningBanner(message, emailSignature) {
         btn.style.fontSize = '1rem';
         btn.style.fontWeight = '600';
         btn.style.cursor = 'pointer';
-        btn.onclick = function() { popup.remove(); shownEmailWarnings.add(emailSignature); };
+        btn.onclick = function() { popup.remove(); shownEmailWarnings.add(emailSignature); sessionStorage.setItem('phishingWarned_' + emailSignature, '1'); };
         popup.appendChild(btn);
         document.body.appendChild(popup);
     } else {
@@ -197,3 +197,10 @@ new MutationObserver(() => {
         observeEmailChanges();
     }
 }).observe(document, {subtree: true, childList: true});
+
+(function restoreWarnedEmailsFromSession() {
+    for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith('phishingWarned_')) shownEmailWarnings.add(k.replace('phishingWarned_', ''));
+    }
+})();
