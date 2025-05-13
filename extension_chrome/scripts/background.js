@@ -427,9 +427,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const contentType = fetchResponse.headers.get("content-type");
                 if (fetchResponse.ok && contentType && contentType.includes("application/json")) {
                     const data = await fetchResponse.json();
+                    await updateLocalBlocklists();
                     sendResponse({ success: true, data: data });
                 } else if (fetchResponse.ok) { // Non-JSON OK response
                     const textData = await fetchResponse.text();
+                    await updateLocalBlocklists();
                     sendResponse({ success: true, message: textData || "Report submitted (non-JSON response)." });
                 }
                 else { // Error response

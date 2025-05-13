@@ -195,6 +195,23 @@ def report_item_api():
             db.session.rollback()
             logger.error(f"DB error removing {base_type_for_action} '{normalized_value}' from blocklist: {e}")
             return jsonify({"error": "Failed to remove from blocklist."}), 500
+    if report_type_original in ALLOWED_ITEM_TYPES:
+        normalized_value = normalize_domain_backend(value_original) if report_type_original == 'domain' else normalize_email_backend(value_original)
+        if not normalized_value:
+            return jsonify({"error": f"Invalid {report_type_original} value: {value_original}"}), 400
+        try:
+            exists_item = db.session.execute(select(Blocklist).where(Blocklist.item_type == report_type_original, Blocklist.value == normalized_value)).scalar_one_or_none()
+            if not exists_item:
+                db.session.add(Blocklist(item_type=report_type_original, value=normalized_value, status='active', source=source, reason=reason))
+                db.session.commit()
+                update_data_version(f"blocklist_{report_type_original}s")
+                return jsonify({"message": f"Đã thêm {report_type_original} {normalized_value} vào danh sách chặn."}), 201
+            else:
+                return jsonify({"message": f"{report_type_original.capitalize()} {normalized_value} đã có trong danh sách chặn."}), 200
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"DB error adding {report_type_original} '{normalized_value}' to blocklist: {e}")
+            return jsonify({"error": "Failed to add to blocklist."}), 500
     base_type_for_action = report_type_original.replace('false_positive_', '')
     if base_type_for_action not in ALLOWED_ITEM_TYPES and report_type_original != 'content_keyword':
         return jsonify({"error": f"Invalid report type: {report_type_original}"}), 400
