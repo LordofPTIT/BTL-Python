@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (prevSafeUrl && (prevSafeUrl.startsWith('http:') || prevSafeUrl.startsWith('https:'))) {
             window.location.href = prevSafeUrl;
         } else {
-            window.location.href = 'about:blank';
+            window.location.href = 'chrome://newtab';
         }
     });
 

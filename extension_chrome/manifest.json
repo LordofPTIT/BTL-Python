@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
   "name": "VN Phishing Guard Pro",
-  "version": "1.0",
-  "description": "Bảo vệ người dùng khỏi các trang web và email lừa đảo",
+  "version": "1.0.0",
+  "description": "Bảo vệ người dùng khỏi các trang web và email lừa đảo.",
   "permissions": [
     "storage",
     "tabs",
     "notifications",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
   "host_permissions": [
-    "http://localhost:5000/*"
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*"
   ],
   "background": {
     "service_worker": "scripts/background.js"
@@ -19,25 +21,33 @@
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }
   },
   "icons": {
     "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "128": "icons/icon-128.png",
+    "256": "icons/icon-256.png",
+    "512": "icons/icon-512.png"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content_scripts/content.js"],
-      "css": ["content_scripts/content.css"]
+      "js": ["scripts/content.js"],
+      "css": ["styles/content.css"]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["warning/*"],
+      "resources": [
+        "warning/warning.html",
+        "warning/warning.js",
+        "icons/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

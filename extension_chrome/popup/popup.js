@@ -1,7 +1,5 @@
 document.addEventListener('DOMContentLoaded', async function() {
-    const apiIndicator = document.getElementById('api-indicator');
-    const apiText = document.getElementById('api-text');
-    const optionsLink = document.getElementById('options-link');
+    const apiStatus = document.getElementById('apiStatus');
     const reportEmailInput = document.getElementById('reportEmailInput');
     const reportEmailButton = document.getElementById('reportEmailButton');
     const reportEmailResult = document.getElementById('reportEmailResult');
@@ -9,18 +7,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     const reportDomainButton = document.getElementById('reportDomainButton');
     const reportDomainResult = document.getElementById('reportDomainResult');
 
-    optionsLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        chrome.runtime.openOptionsPage();
-    });
-
     function setApiStatus(online) {
         if (online) {
-            apiIndicator.className = 'online';
-            apiText.textContent = 'API Online';
+            apiStatus.className = 'api-status online';
+            apiStatus.textContent = 'API Online';
         } else {
-            apiIndicator.className = 'offline';
-            apiText.textContent = 'API Offline';
+            apiStatus.className = 'api-status offline';
+            apiStatus.textContent = 'API Offline';
         }
     }
 
@@ -28,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const response = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
         setApiStatus(response.reachable);
     } catch (error) {
-        console.error('Error checking API status:', error);
+        setApiStatus(false);
     }
 
     // Xử lý báo cáo email
@@ -43,7 +36,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const response = await chrome.runtime.sendMessage({
                 action: 'reportToBackend',
                 data: {
-                    report_type: 'suspicious_email',
+                    type: 'email',
                     value: email,
                     context: 'Reported from popup'
                 }
@@ -72,7 +65,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const response = await chrome.runtime.sendMessage({
                 action: 'reportToBackend',
                 data: {
-                    report_type: 'suspicious_domain',
+                    type: 'domain',
                     value: domain,
                     context: 'Reported from popup'
                 }
