@@ -39,7 +39,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }, function(response) {
                 if (response && response.success) {
-                    window.location.href = blockedUrl;
+                    chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
+                        alert("Đã đánh dấu là trang an toàn");
+                        window.location.reload();
+                    });
                 } else {
                     alert("Không thể báo cáo an toàn. Vui lòng thử lại.");
                 }

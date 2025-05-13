@@ -490,7 +490,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         } else if (request.action === "markAsSafeAndReport") {
             const domainToMarkSafe = request.domainToMarkSafe;
             let reportSuccess = false;
-
             try {
                 const reportData = request.data;
                 const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
@@ -500,6 +499,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 });
                 if (fetchResponse.ok) {
                     reportSuccess = true;
+                    await updateLocalBlocklists(); // Đồng bộ blocklist local ngay sau khi xóa domain
                     console.log("False positive reported to backend for:", domainToMarkSafe);
                 } else {
                     const errorText = await fetchResponse.text();
@@ -508,7 +508,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } catch (error) {
                 console.error("Error reporting false positive to backend:", error);
             }
-
             sendResponse({ success: reportSuccess, reportAttempted: true, reportSuccess: reportSuccess });
         } else if (request.action === "getApiStatus") {
             try {

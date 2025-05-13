@@ -74,6 +74,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (response.success) {
                 reportDomainResult.textContent = 'Đã báo cáo domain thành công!';
                 reportDomainInput.value = '';
+                // Đồng bộ blocklist local ngay sau khi báo cáo thành công
+                chrome.runtime.sendMessage({ action: 'updateBlocklists' });
             } else {
                 reportDomainResult.textContent = `Lỗi: ${response.error || 'Không thể báo cáo domain'}`;
             }
