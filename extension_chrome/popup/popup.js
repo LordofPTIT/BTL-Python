@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (response.success) {
                 reportEmailResult.textContent = 'Đã báo cáo email thành công!';
                 reportEmailInput.value = '';
+                chrome.runtime.sendMessage({ action: 'updateBlocklists' });
             } else {
                 reportEmailResult.textContent = `Lỗi: ${response.error || 'Không thể báo cáo email'}`;
             }

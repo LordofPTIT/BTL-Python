@@ -384,148 +384,143 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
-        if (request.action === "getCurrentTabInfo") {
-            if (sender.tab && sender.tab.id) {
-                try {
-                    const tab = await chrome.tabs.get(sender.tab.id);
-                    const url = tab.url;
-                    if (url && (url.startsWith('http:') || url.startsWith('https:'))) {
-                        const urlObj = new URL(url);
-                        const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-                        sendResponse({ url: url, domain: domain, tabId: tab.id });
-                    } else {
-                        sendResponse({ url: url, domain: null, tabId: tab.id });
+        try {
+            if (request.action === "getCurrentTabInfo") {
+                if (sender.tab && sender.tab.id) {
+                    try {
+                        const tab = await chrome.tabs.get(sender.tab.id);
+                        const url = tab.url;
+                        if (url && (url.startsWith('http:') || url.startsWith('https:'))) {
+                            const urlObj = new URL(url);
+                            const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                            sendResponse({ url: url, domain: domain, tabId: tab.id });
+                        } else {
+                            sendResponse({ url: url, domain: null, tabId: tab.id });
+                        }
+                    } catch (e) {
+                        console.error("Error getting current tab info:", e);
+                        sendResponse({ url: null, domain: null, tabId: sender.tab?.id });
                     }
-                } catch (e) {
-                    console.error("Error getting current tab info:", e);
-                    sendResponse({ url: null, domain: null, tabId: sender.tab?.id });
+                } else { // From popup
+                     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                     if (tab && tab.url && (tab.url.startsWith('http:') || tab.url.startsWith('https:'))) {
+                        const urlObj = new URL(tab.url);
+                        const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                        sendResponse({ url: tab.url, domain: domain, tabId: tab.id });
+                     } else {
+                        sendResponse({ url: tab?.url, domain: null, tabId: tab?.id });
+                     }
                 }
-            } else { // From popup
-                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                 if (tab && tab.url && (tab.url.startsWith('http:') || tab.url.startsWith('https:'))) {
-                    const urlObj = new URL(tab.url);
-                    const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-                    sendResponse({ url: tab.url, domain: domain, tabId: tab.id });
-                 } else {
-                    sendResponse({ url: tab?.url, domain: null, tabId: tab?.id });
-                 }
-            }
-        } else if (request.action === "checkDomain") {
-            const localResult = await checkUrlAgainstLocalLists(sender.tab?.id || null, request.value); // value here is domain, but function expects URL
-            if (localResult.isPhishing) {
-                sendResponse(localResult);
-            } else {
-
-                const dummyUrl = `http://${request.value}/`;
-                const backendResult = await checkUrlWithBackend(sender.tab?.id || null, dummyUrl);
-                sendResponse(backendResult);
-            }
-        } else if (request.action === "getCurrentPhishingUrl") {
-            sendResponse({ url: currentPhishingUrl, tabId: currentTabId });
-        } else if (request.action === "getKeywords") {
-            const data = await chrome.storage.local.get("localKeywords");
-            sendResponse(data.localKeywords || PHISHING_KEYWORDS_VN_DEFAULT);
-        } else if (request.action === "reportToBackend" || request.action === "reportItem") {
-            try {
-                const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(request.data || { report_type: request.type, value: request.value, context: request.context})
-                });
-
-                const contentType = fetchResponse.headers.get("content-type");
-                if (fetchResponse.ok && contentType && contentType.includes("application/json")) {
-                    const data = await fetchResponse.json();
-                    await updateLocalBlocklists();
-                    sendResponse({ success: true, data: data });
-                } else if (fetchResponse.ok) { // Non-JSON OK response
-                    const textData = await fetchResponse.text();
-                    await updateLocalBlocklists();
-                    sendResponse({ success: true, message: textData || "Report submitted (non-JSON response)." });
-                }
-                else { // Error response
-                    const errorText = await fetchResponse.text();
-                    console.error("Error reporting to backend:", errorText);
-                    sendResponse({ success: false, error: `HTTP error ${fetchResponse.status}: ${fetchResponse.statusText}. Body: ${errorText.substring(0,100)}` });
-                }
-            } catch (error) {
-                console.error("Error reporting to backend:", error);
-                sendResponse({ success: false, error: error.message });
-            }
-        } else if (request.action === "checkDomainWithBackend") {
-            const domain = request.domain;
-            try {
-                const response = await fetch(`${API_BASE_URL_BG}/check?type=domain&value=${encodeURIComponent(domain)}`);
-                const data = await response.json();
-                sendResponse(data);
-            } catch (error) {
-                console.error("Error checking domain with backend:", error);
-                sendResponse({ status: 'error', error: error.message });
-            }
-        } else if (request.action === "getReportedMaliciousEmails") {
-            try {
-                const fetchUrl = `${API_BASE_URL_BG}/blocklist?type=email`;
-                const response = await fetch(fetchUrl);
-                if (!response.ok) {
-                    sendResponse({ success: true, emails: [], error: `Backend error: ${response.status}` });
-                    return;
-                }
-                const data = await response.json();
-                sendResponse({ success: true, emails: (data.items || []).map(e => ({ value: e })) });
-            } catch (error) {
-                sendResponse({ success: false, error: error.message, emails: [] });
-            }
-        } else if (request.action === "addToSessionWhitelist") {
-            const urlToWhitelist = request.url;
-            const tabId = sender.tab ? sender.tab.id : null;
-            if (urlToWhitelist && tabId !== null) {
-                const urlObj = new URL(urlToWhitelist);
-                const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-                // Lưu whitelist tạm thời theo tabId
-                const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
-                let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
-                if (!sessionWhitelistedUrlsPerTab[tabId]) sessionWhitelistedUrlsPerTab[tabId] = [];
-                if (!sessionWhitelistedUrlsPerTab[tabId].includes(hostname)) {
-                    sessionWhitelistedUrlsPerTab[tabId].push(hostname);
-                }
-                await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
-                sendResponse({ success: true });
-            } else {
-                sendResponse({ success: false, error: "No URL or tabId provided" });
-            }
-        } else if (request.action === "settingsUpdated") {
-             console.log("Received settingsUpdated message, reloading API base URL.");
-             await loadApiBaseUrl(); // Reload API URL
-             sendResponse({status: "API URL reloaded"});
-        } else if (request.action === "markAsSafeAndReport") {
-            const domainToMarkSafe = request.domainToMarkSafe;
-            let reportSuccess = false;
-            try {
-                const reportData = request.data;
-                const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(reportData)
-                });
-                if (fetchResponse.ok) {
-                    reportSuccess = true;
-                    await updateLocalBlocklists(); // Đồng bộ blocklist local ngay sau khi xóa domain
-                    console.log("False positive reported to backend for:", domainToMarkSafe);
+            } else if (request.action === "checkDomain") {
+                const localResult = await checkUrlAgainstLocalLists(sender.tab?.id || null, request.value); // value here is domain, but function expects URL
+                if (localResult.isPhishing) {
+                    sendResponse(localResult);
                 } else {
-                    const errorText = await fetchResponse.text();
-                    console.error("Failed to report false positive to backend:", errorText);
+
+                    const dummyUrl = `http://${request.value}/`;
+                    const backendResult = await checkUrlWithBackend(sender.tab?.id || null, dummyUrl);
+                    sendResponse(backendResult);
                 }
-            } catch (error) {
-                console.error("Error reporting false positive to backend:", error);
+            } else if (request.action === "getCurrentPhishingUrl") {
+                sendResponse({ url: currentPhishingUrl, tabId: currentTabId });
+            } else if (request.action === "getKeywords") {
+                const data = await chrome.storage.local.get("localKeywords");
+                sendResponse(data.localKeywords || PHISHING_KEYWORDS_VN_DEFAULT);
+            } else if (request.action === "reportToBackend" || request.action === "reportItem") {
+                try {
+                    const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(request.data || { report_type: request.type, value: request.value, context: request.context})
+                    });
+                    const contentType = fetchResponse.headers.get("content-type");
+                    if (fetchResponse.ok && contentType && contentType.includes("application/json")) {
+                        const data = await fetchResponse.json();
+                        await updateLocalBlocklists();
+                        sendResponse({ success: true, data: data });
+                    } else if (fetchResponse.ok) {
+                        const textData = await fetchResponse.text();
+                        await updateLocalBlocklists();
+                        sendResponse({ success: true, message: textData || "Report submitted (non-JSON response)." });
+                    } else {
+                        const errorText = await fetchResponse.text();
+                        sendResponse({ success: false, error: `HTTP error ${fetchResponse.status}: ${fetchResponse.statusText}. Body: ${errorText.substring(0,100)}` });
+                    }
+                } catch (error) {
+                    sendResponse({ success: false, error: error.message });
+                }
+            } else if (request.action === "checkDomainWithBackend") {
+                const domain = request.domain;
+                try {
+                    const response = await fetch(`${API_BASE_URL_BG}/check?type=domain&value=${encodeURIComponent(domain)}`);
+                    const data = await response.json();
+                    sendResponse(data);
+                } catch (error) {
+                    console.error("Error checking domain with backend:", error);
+                    sendResponse({ status: 'error', error: error.message });
+                }
+            } else if (request.action === "getReportedMaliciousEmails") {
+                try {
+                    const fetchUrl = `${API_BASE_URL_BG}/blocklist?type=email`;
+                    const response = await fetch(fetchUrl);
+                    if (!response.ok) {
+                        sendResponse({ success: true, emails: [], error: `Backend error: ${response.status}` });
+                        return;
+                    }
+                    const data = await response.json();
+                    sendResponse({ success: true, emails: (data.items || []).map(e => ({ value: e })) });
+                } catch (error) {
+                    sendResponse({ success: false, error: error.message, emails: [] });
+                }
+            } else if (request.action === "addToSessionWhitelist") {
+                const urlToWhitelist = request.url;
+                const tabId = sender.tab ? sender.tab.id : null;
+                if (urlToWhitelist && tabId !== null) {
+                    const urlObj = new URL(urlToWhitelist);
+                    const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                    // Lưu whitelist tạm thời theo tabId
+                    const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
+                    let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
+                    if (!sessionWhitelistedUrlsPerTab[tabId]) sessionWhitelistedUrlsPerTab[tabId] = [];
+                    if (!sessionWhitelistedUrlsPerTab[tabId].includes(hostname)) {
+                        sessionWhitelistedUrlsPerTab[tabId].push(hostname);
+                    }
+                    await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
+                    sendResponse({ success: true });
+                } else {
+                    sendResponse({ success: false, error: "No URL or tabId provided" });
+                }
+            } else if (request.action === "settingsUpdated") {
+                await loadApiBaseUrl();
+                sendResponse({status: "API URL reloaded"});
+            } else if (request.action === "markAsSafeAndReport") {
+                const domainToMarkSafe = request.domainToMarkSafe;
+                let reportSuccess = false;
+                try {
+                    const reportData = request.data;
+                    const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reportData)
+                    });
+                    if (fetchResponse.ok) {
+                        reportSuccess = true;
+                        await updateLocalBlocklists();
+                    }
+                } catch (error) {}
+                sendResponse({ success: reportSuccess, reportAttempted: true, reportSuccess: reportSuccess });
+            } else if (request.action === "getApiStatus") {
+                try {
+                    const response = await fetch(`${API_BASE_URL_BG}/status`);
+                    sendResponse({ reachable: response.ok });
+                } catch (e) {
+                    sendResponse({ reachable: false });
+                }
+            } else {
+                sendResponse({});
             }
-            sendResponse({ success: reportSuccess, reportAttempted: true, reportSuccess: reportSuccess });
-        } else if (request.action === "getApiStatus") {
-            try {
-                const response = await fetch(`${API_BASE_URL_BG}/status`);
-                sendResponse({ reachable: response.ok });
-            } catch (e) {
-                sendResponse({ reachable: false });
-            }
+        } catch (err) {
+            sendResponse({ success: false, error: err.message });
         }
     })();
     return true;

@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (response && response.success) {
                     chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
                         alert("Đã đánh dấu là trang an toàn");
-                        window.location.reload();
+                        window.location.href = 'https://www.google.com/';
                     });
                 } else {
                     alert("Không thể báo cáo an toàn. Vui lòng thử lại.");
@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const tab = tabs[0];
                 chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(response) {
                     if (response && response.success) {
-                        window.location.href = blockedUrl;
+                        window.location.replace(blockedUrl);
                     } else {
                         alert("Không thể cho phép tạm thời. Vui lòng thử lại.");
                     }
