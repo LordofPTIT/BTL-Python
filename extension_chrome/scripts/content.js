@@ -2,7 +2,6 @@ let SCAN_KEYWORDS = [];
 let REPORTED_MALICIOUS_EMAILS = [];
 let observer = null;
 const scannedEmailSignatures = new Set();
-const shownEmailWarnings = new Set();
 
 function getEmailSignature(subject, from, bodySample) {
     const bodyPart = bodySample.substring(0, 100);
@@ -29,7 +28,6 @@ async function initializeScanner() {
         REPORTED_MALICIOUS_EMAILS = [];
     }
 }
-
 
 function getEmailContent() {
     let subject = "";
@@ -76,13 +74,22 @@ function getEmailContent() {
     return { subject: subject.toLowerCase(), body: body.toLowerCase(), from: from.toLowerCase() };
 }
 
-function scanEmailContent() {
+async function scanEmailContent() {
     const { subject, body, from } = getEmailContent();
     if (!subject && !body && !from) return;
+    
     const emailSignature = getEmailSignature(subject, from, body);
-    if (sessionStorage.getItem('phishingWarned_' + emailSignature)) return;
-    if (scannedEmailSignatures.has(emailSignature)) return;
-    if (shownEmailWarnings.has(emailSignature)) return;
+    
+    // Kiểm tra với background script xem đã hiển thị cảnh báo cho email này chưa
+    const response = await chrome.runtime.sendMessage({ 
+        action: "checkEmailWarning",
+        emailSignature: emailSignature
+    });
+    
+    if (response.hasShownWarning) {
+        return;
+    }
+
     let keywordFound = null;
     if (SCAN_KEYWORDS && SCAN_KEYWORDS.length > 0) {
         for (const keyword of SCAN_KEYWORDS) {
@@ -92,25 +99,23 @@ function scanEmailContent() {
             }
         }
     }
+
     if (from && REPORTED_MALICIOUS_EMAILS && REPORTED_MALICIOUS_EMAILS.length > 0) {
         for (const reportedEmail of REPORTED_MALICIOUS_EMAILS) {
             if (from === reportedEmail) {
                 showWarningBanner('Đây là email có trong danh sách cảnh báo.', emailSignature);
-                scannedEmailSignatures.add(emailSignature);
                 return;
             }
         }
     }
+
     if (keywordFound) {
         showWarningBanner(`Email này chứa từ khóa đáng ngờ: "${keywordFound}". Hãy cẩn thận!`, emailSignature);
-        scannedEmailSignatures.add(emailSignature);
         return;
     }
-    scannedEmailSignatures.add(emailSignature);
 }
 
 function showWarningBanner(message, emailSignature) {
-    if (shownEmailWarnings.has(emailSignature)) return;
     let popup = document.getElementById('phishing-warning-popup-email');
     if (!popup) {
         popup = document.createElement('div');
@@ -133,12 +138,14 @@ function showWarningBanner(message, emailSignature) {
         popup.style.zIndex = '2147483647';
         popup.style.fontSize = '1.1rem';
         popup.innerHTML = '';
+        
         var msg = document.createElement('div');
         msg.style.marginBottom = '32px';
         msg.style.textAlign = 'center';
         msg.style.fontWeight = '600';
         msg.innerText = message;
         popup.appendChild(msg);
+        
         var btn = document.createElement('button');
         btn.innerText = 'Tôi đã hiểu';
         btn.style.padding = '12px 32px';
@@ -149,7 +156,14 @@ function showWarningBanner(message, emailSignature) {
         btn.style.fontSize = '1rem';
         btn.style.fontWeight = '600';
         btn.style.cursor = 'pointer';
-        btn.onclick = function() { popup.remove(); shownEmailWarnings.add(emailSignature); sessionStorage.setItem('phishingWarned_' + emailSignature, '1'); };
+        btn.onclick = async function() {
+            popup.remove();
+            // Thông báo cho background script rằng đã hiển thị cảnh báo
+            await chrome.runtime.sendMessage({
+                action: "markEmailWarningShown",
+                emailSignature: emailSignature
+            });
+        };
         popup.appendChild(btn);
         document.body.appendChild(popup);
     } else {
@@ -193,19 +207,14 @@ new MutationObserver(() => {
     const url = location.href;
     if (url !== lastUrlContent) {
         lastUrlContent = url;
-        scannedEmailSignatures.clear();
+        // Thông báo cho background script xóa trạng thái cảnh báo
+        chrome.runtime.sendMessage({ action: "clearEmailWarningState" });
         scanEmailContent();
         observeEmailChanges();
     }
 }).observe(document, {subtree: true, childList: true});
 
-(function restoreWarnedEmailsFromSession() {
-    for (let i = 0; i < sessionStorage.length; i++) {
-        const k = sessionStorage.key(i);
-        if (k && k.startsWith('phishingWarned_')) shownEmailWarnings.add(k.replace('phishingWarned_', ''));
-    }
-})();
-
+// Xóa trạng thái cảnh báo khi tab bị đóng
 window.addEventListener('beforeunload', () => {
-    scannedEmailSignatures.clear();
+    chrome.runtime.sendMessage({ action: "clearEmailWarningState" });
 });

@@ -1,9 +1,11 @@
-let API_BASE_URL_BG = 'http://127.0.0.1:5000/api'; // Default API URL
+let API_BASE_URL_BG = 'http://127.0.0.1:5000/api';
 let currentPhishingUrl = null;
 let currentTabId = null;
 
 const PHISHING_KEYWORDS_VN_DEFAULT = [ "xác minh tài khoản", "đăng nhập khẩn cấp", "tài khoản của bạn đã bị khóa", "thông tin tài khoản", "cập nhật thông tin", "khẩn cấp", "quan trọng", "mật khẩu của bạn đã hết hạn", "quà tặng miễn phí", "trúng thưởng", "ưu đãi đặc biệt", "nhấp vào đây", "liên kết này", "yêu cầu thanh toán", "hóa đơn chưa thanh toán", "ngân hàng", "vietcombank", "techcombank", "agribank", "bidv", "sacombank", "vpbank", "momo", "zalopay", "cảnh báo bảo mật", "hoạt động đáng ngờ", "phiên đăng nhập lạ", "ủy quyền", "xác thực", "mã OTP", "giao dịch đang chờ xử lý", "hỗ trợ khách hàng", "chính phủ", "thuế", "bảo hiểm xã hội", "công an", "thông báo từ cơ quan nhà nước", "apple", "microsoft", "google", "facebook", "amazon", "paypal", "netflix", "lazada", "shopee", "tiki", "thừa kế", "triệu phú", "đầu tư lợi nhuận cao", "cơ hội việc làm", "làm việc tại nhà lương cao", "urgent", "verify your account", "account locked", "update your details", "password expired", "free gift", "you have won", "special offer", "click here", "payment request", "unpaid invoice", "security alert", "suspicious activity", "unusual sign-in", "confirm your identity", "chúng tôi phát hiện", "hoạt động bất thường", "yêu cầu thông tin cá nhân", "cung cấp ngay", "số thẻ tín dụng", "mã bảo mật CVV", "thông tin đăng nhập", "tên người dùng và mật khẩu", "thông báo trúng thưởng lớn", "bạn là người may mắn", "giải thưởng giá trị cao", "đòi tiền chuộc", "dữ liệu của bạn đã bị mã hóa", "thanh toán để giải mã" ];
 
+// Thêm Map để lưu trữ trạng thái cảnh báo theo tab
+const emailWarningStates = new Map();
 
 async function loadApiBaseUrl() {
     try {
@@ -108,7 +110,7 @@ function parsePlainList(text) {
                 rules.push({ domain: domainPart, path: null, original: trimmedLine, type: 'domain' });
             }
         } catch (e) {
-            // console.warn(`Could not parse plain list item as domain: ${trimmedLine}`, e);
+            console.warn(`Could not parse plain list item as domain: ${trimmedLine}`, e);
         }
     }
     return rules;
@@ -516,6 +518,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 } catch (e) {
                     sendResponse({ reachable: false });
                 }
+            } else if (request.action === "checkEmailWarning") {
+                const tabId = sender.tab.id;
+                const emailSignature = request.emailSignature;
+                
+                // Kiểm tra xem đã hiển thị cảnh báo cho email này trong tab hiện tại chưa
+                if (!emailWarningStates.has(tabId)) {
+                    emailWarningStates.set(tabId, new Set());
+                }
+                
+                const hasShownWarning = emailWarningStates.get(tabId).has(emailSignature);
+                sendResponse({ hasShownWarning });
+            } else if (request.action === "markEmailWarningShown") {
+                const tabId = sender.tab.id;
+                const emailSignature = request.emailSignature;
+                
+                if (!emailWarningStates.has(tabId)) {
+                    emailWarningStates.set(tabId, new Set());
+                }
+                emailWarningStates.get(tabId).add(emailSignature);
+                sendResponse({ success: true });
+            } else if (request.action === "clearEmailWarningState") {
+                const tabId = sender.tab.id;
+                emailWarningStates.delete(tabId);
+                sendResponse({ success: true });
             } else {
                 sendResponse({});
             }
@@ -603,5 +629,17 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 priority: 1
             });
         }
+    }
+});
+
+// Thêm listener để xóa trạng thái cảnh báo khi tab bị đóng
+chrome.tabs.onRemoved.addListener((tabId) => {
+    emailWarningStates.delete(tabId);
+});
+
+// Thêm listener để xóa trạng thái cảnh báo khi tab được reload
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'loading') {
+        emailWarningStates.delete(tabId);
     }
 });
