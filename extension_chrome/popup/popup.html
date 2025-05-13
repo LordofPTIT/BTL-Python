@@ -10,27 +10,24 @@
         <img src="../icons/icon-48.png" alt="Icon">
         <h1>VN Phishing Guard Pro</h1>
     </div>
-
     <div class="status-section">
-        <h2>Trạng thái trang hiện tại</h2>
-        <p id="current-site-status" class="unknown">Đang tải...</p>
-        <p id="current-site-url">...</p>
-        <p id="current-site-reason" class="reason"></p>
+        <h2>Báo cáo email cần chặn</h2>
+        <input id="report-email-input" type="email" placeholder="Nhập email cần chặn" style="width:100%;margin-bottom:8px;">
+        <button id="report-email-btn">Cập nhật email</button>
+        <div id="report-email-result" style="margin-top:6px;font-size:0.95em;"></div>
     </div>
-
-    <div class="action-buttons">
-         <button id="report-site-button" disabled>Báo cáo trang này là lừa đảo</button>
-         <button id="whitelist-site-button" disabled>Đây là trang an toàn (Whitelist)</button>
+    <div class="status-section">
+        <h2>Báo cáo domain cần chặn</h2>
+        <input id="report-domain-input" type="text" placeholder="Nhập domain cần chặn" style="width:100%;margin-bottom:8px;">
+        <button id="report-domain-btn">Cập nhật domain</button>
+        <div id="report-domain-result" style="margin-top:6px;font-size:0.95em;"></div>
     </div>
-
     <div class="api-status">
         API Status: <span id="api-indicator"></span> <span id="api-text">Đang kiểm tra...</span>
     </div>
-
     <div class="footer">
         <a href="../options/options.html" target="_blank" id="options-link">Cài đặt</a>
     </div>
-
     <script src="popup.js"></script>
 </body>
 </html>

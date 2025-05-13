@@ -1023,14 +1023,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
              console.log("Received settingsUpdated message, reloading API base URL.");
              await loadApiBaseUrl(); // Reload API URL
              sendResponse({status: "API URL reloaded"});
-        } else if (request.action === "markAsSafeAndReport") { // New action for "Báo cáo là an toàn"
+        } else if (request.action === "markAsSafeAndReport") { 
             const domainToMarkSafe = request.domainToMarkSafe;
             let reportSuccess = false;
             let whitelistSuccess = false;
 
-            // 1. Report to backend (existing logic)
+
             try {
-                const reportData = request.data; // This should contain the false_positive report details
+                const reportData = request.data;
                 const fetchResponse = await fetch(`${API_BASE_URL_BG}/report`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1047,7 +1047,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.error("Error reporting false positive to backend:", error);
             }
 
-            // 2. Add to user's local allowlist
+
             if (domainToMarkSafe) {
                 try {
                     const data = await chrome.storage.sync.get('userAllowlist');
@@ -1075,8 +1075,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({ reachable: false });
             }
         }
-    })(); // Immediately-invoked async function
-    return true; // Required for async sendResponse
+    })();
+    return true;
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
