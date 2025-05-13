@@ -39,14 +39,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }, function(response) {
                 if (response && response.success) {
-                    chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
-                        chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(whitelistResp) {
-                            if (whitelistResp && whitelistResp.success) {
+                    chrome.runtime.sendMessage({ action: "addToPermanentWhitelist", domain: domainToMarkSafe }, function(whitelistResp) {
+                        if (whitelistResp && whitelistResp.success) {
+                            chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
                                 window.location.href = blockedUrl;
-                            } else {
-                                alert("Không thể thêm vào whitelist phiên. Vui lòng thử lại.");
-                            }
-                        });
+                            });
+                        } else {
+                            alert("Không thể thêm vào whitelist vĩnh viễn. Vui lòng thử lại.");
+                        }
                     });
                 } else {
                     alert("Không thể báo cáo an toàn. Vui lòng thử lại.");

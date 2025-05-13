@@ -212,6 +212,18 @@ async function updateLocalBlocklists() {
     }
     await chrome.storage.local.set({ combinedLocalBlocklistRules: combinedRules, lastLocalListUpdate: Date.now() });
     console.log("Combined local blocklist rules updated and stored.", combinedRules.length, "rules processed.");
+
+    // Sau khi cập nhật blocklist, cập nhật luôn whitelist
+    try {
+        const response = await fetch(`${API_BASE_URL_BG}/whitelist?type=domain`);
+        if (response.ok) {
+            const data = await response.json();
+            await chrome.storage.local.set({ localWhitelists: data.items || [] });
+            console.log("Whitelist domain loaded and stored.");
+        }
+    } catch (e) {
+        console.warn("Không thể cập nhật whitelist domain từ backend", e);
+    }
 }
 
 async function isUrlTemporarilyAllowed(urlString, tabId) {
@@ -234,6 +246,17 @@ async function checkUrlAgainstLocalLists(tabId, url) {
     const urlObj = new URL(url);
     const domainToCheck = urlObj.hostname.toLowerCase().replace(/^www\./, '');
     
+    // 1. Kiểm tra whitelist trước
+    try {
+        const { localWhitelists } = await chrome.storage.local.get('localWhitelists');
+        if (localWhitelists && Array.isArray(localWhitelists)) {
+            if (localWhitelists.includes(domainToCheck)) {
+                return { isPhishing: false, reason: "Domain nằm trong whitelist vĩnh viễn" };
+            }
+        }
+    } catch (e) {}
+
+    // 2. Kiểm tra session whitelist (tạm thời)
     if (await isUrlTemporarilyAllowed(url, tabId)) {
         return {isPhishing: false, reason: "Đã được người dùng cho phép tạm thời trong phiên này."};
     }
@@ -542,6 +565,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const tabId = sender.tab.id;
                 emailWarningStates.delete(tabId);
                 sendResponse({ success: true });
+            } else if (request.action === "addToPermanentWhitelist") {
+                // Gọi API backend để thêm domain vào whitelist vĩnh viễn
+                const domain = request.domain;
+                if (!domain) {
+                    sendResponse({ success: false, error: "No domain provided" });
+                    return;
+                }
+                try {
+                    const response = await fetch(`${API_BASE_URL_BG}/whitelist`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'domain', value: domain, source: 'user_whitelist', reason: 'User marked as safe from extension' })
+                    });
+                    if (response.ok) {
+                        sendResponse({ success: true });
+                    } else {
+                        const data = await response.json().catch(() => ({}));
+                        sendResponse({ success: false, error: data.error || 'Failed to add to whitelist' });
+                    }
+                } catch (e) {
+                    sendResponse({ success: false, error: e.message });
+                }
+                return;
             } else {
                 sendResponse({});
             }
