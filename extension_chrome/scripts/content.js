@@ -79,13 +79,22 @@ async function scanEmailContent() {
     if (!subject && !body && !from) return;
     
     const emailSignature = getEmailSignature(subject, from, body);
-    
-    // Kiểm tra với background script xem đã hiển thị cảnh báo cho email này chưa
-    const response = await chrome.runtime.sendMessage({ 
-        action: "checkEmailWarning",
-        emailSignature: emailSignature
-    });
-    
+    let response = {};
+    try {
+        // Kiểm tra với background script xem đã hiển thị cảnh báo cho email này chưa
+        response = await chrome.runtime.sendMessage({ 
+            action: "checkEmailWarning",
+            emailSignature: emailSignature
+        });
+    } catch (e) {
+        if (e && e.message && e.message.includes('Extension context invalidated')) {
+            // Nếu context invalidated, fallback: luôn hiển thị cảnh báo
+            showWarningBanner('Email này có dấu hiệu đáng ngờ hoặc extension không thể kiểm tra trạng thái. Hãy cẩn thận!', emailSignature);
+            return;
+        } else {
+            console.warn('Lỗi gửi message tới background:', e);
+        }
+    }
     if (response.hasShownWarning) {
         return;
     }
@@ -207,14 +216,29 @@ new MutationObserver(() => {
     const url = location.href;
     if (url !== lastUrlContent) {
         lastUrlContent = url;
-        // Thông báo cho background script xóa trạng thái cảnh báo
-        chrome.runtime.sendMessage({ action: "clearEmailWarningState" });
         scanEmailContent();
         observeEmailChanges();
     }
 }).observe(document, {subtree: true, childList: true});
 
-// Xóa trạng thái cảnh báo khi tab bị đóng
-window.addEventListener('beforeunload', () => {
-    chrome.runtime.sendMessage({ action: "clearEmailWarningState" });
-});
+function showDomainBlockWarning(domain, reason) {
+    // Hiển thị popup cảnh báo đơn giản nếu không inject được từ background
+    let popup = document.getElementById('phishing-warning-popup-domain');
+    if (!popup) {
+        popup = document.createElement('div');
+        popup.id = 'phishing-warning-popup-domain';
+        popup.style.position = 'fixed';
+        popup.style.top = '0';
+        popup.style.left = '0';
+        popup.style.width = '100%';
+        popup.style.height = '100%';
+        popup.style.background = 'rgba(0,0,0,0.7)';
+        popup.style.zIndex = '2147483647';
+        popup.style.display = 'flex';
+        popup.style.alignItems = 'center';
+        popup.style.justifyContent = 'center';
+        popup.innerHTML = `<div style="background:#fff;color:#d9534f;padding:32px;border-radius:12px;text-align:center;max-width:420px;width:420px;box-shadow:0 4px 24px rgba(0,0,0,0.13)"><h2>CẢNH BÁO AN NINH!</h2><p>Trang <b>${domain}</b> bị chặn.<br>Lý do: ${reason || 'Không rõ.'}</p><button id="close-domain-warning" style="margin-top:18px;padding:10px 32px;background:#5cb85c;color:#fff;border:none;border-radius:6px;font-size:1rem;font-weight:600;cursor:pointer;">Đã hiểu</button></div>`;
+        document.body.appendChild(popup);
+        document.getElementById('close-domain-warning').onclick = () => popup.remove();
+    }
+}

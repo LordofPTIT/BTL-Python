@@ -6,6 +6,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const tabIdParam = params.get('tabId');
     const prevSafeUrl = params.get('prevSafeUrl') || '';
 
+    if (!blockedUrl) {
+        document.body.innerHTML = '<div style="color:#d9534f;text-align:center;margin-top:60px;font-size:1.2rem;">Không có URL để cảnh báo!</div>';
+        return;
+    }
+
     document.getElementById('blocked-url').textContent = blockedUrl || 'Không có URL';
     document.getElementById('list-name').textContent = listName || 'Không rõ nguồn gốc';
     document.getElementById('reason-text').textContent = reason || 'Không có lý do cụ thể.';
@@ -15,59 +20,46 @@ document.addEventListener('DOMContentLoaded', function () {
     const proceedAnywayButton = document.getElementById('proceed-anyway');
 
     goBackButton.addEventListener('click', function () {
-        window.location.href = 'https://www.google.com/';
+        if (tabIdParam && chrome && chrome.tabs) {
+            try {
+                chrome.tabs.update(Number(tabIdParam), { url: 'https://www.google.com/' }, function() {
+                    window.close();
+                });
+            } catch (e) {
+                window.close();
+            }
+        } else {
+            window.close();
+        }
     });
+
+    function showStatusMessage(msg, isSuccess = true) {
+        const statusDiv = document.getElementById('status-message');
+        statusDiv.textContent = msg;
+        statusDiv.style.color = isSuccess ? '#218838' : '#d9534f';
+        if (isSuccess) {
+            setTimeout(() => { statusDiv.textContent = ''; }, 1500);
+        }
+    }
 
     reportFalsePositiveButton.addEventListener('click', function() {
         if (blockedUrl) {
-            let itemType = "domain";
-            let domainToMarkSafe = blockedUrl;
-            try {
-                const urlObj = new URL(blockedUrl);
-                domainToMarkSafe = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-            } catch(e) {
-                domainToMarkSafe = blockedUrl;
-            }
-            chrome.runtime.sendMessage({
-                action: "markAsSafeAndReport",
-                domainToMarkSafe: domainToMarkSafe,
-                data: {
-                    type: `false_positive_domain`,
-                    value: blockedUrl.toLowerCase(),
-                    source_url: blockedUrl,
-                    context: `Reported as safe from warning page by user.`
-                }
+            const domain = new URL(blockedUrl).hostname.replace(/^www\./, '');
+            chrome.runtime.sendMessage({ 
+                action: "addToPermanentWhitelist", 
+                domain: domain
             }, function(response) {
-                if (response && response.success) {
-                    chrome.runtime.sendMessage({ action: "addToPermanentWhitelist", domain: domainToMarkSafe }, function(whitelistResp) {
-                        if (whitelistResp && whitelistResp.success) {
-                            chrome.runtime.sendMessage({ action: 'updateBlocklists' }, function() {
-                                window.location.href = blockedUrl;
-                            });
-                        } else {
-                            alert("Không thể thêm vào whitelist vĩnh viễn. Vui lòng thử lại.");
-                        }
-                    });
-                } else {
-                    alert("Không thể báo cáo an toàn. Vui lòng thử lại.");
-                }
+                showStatusMessage('Đã đánh dấu là an toàn!', true);
+                setTimeout(() => {
+                    window.close();
+                }, 1200);
             });
         } else {
-            alert("Không có URL để báo cáo.");
+            showStatusMessage('Không có URL để báo cáo.', false);
         }
     });
 
     proceedAnywayButton.addEventListener('click', function () {
-        if (blockedUrl) {
-            chrome.runtime.sendMessage({ action: "addToSessionWhitelist", url: blockedUrl }, function(response) {
-                if (response && response.success) {
-                    window.location.href = blockedUrl;
-                } else {
-                    alert("Không thể cho phép tạm thời. Vui lòng thử lại.");
-                }
-            });
-        } else {
-            alert("Không có URL để tiếp tục.");
-        }
+        window.close();
     });
 });

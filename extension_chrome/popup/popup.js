@@ -54,14 +54,29 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
 
+    // Hàm tách domain gốc từ input
+    function extractDomainOnly(input) {
+        try {
+            let url = input.trim();
+            if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
+            return new URL(url).hostname.replace(/^www\./, '');
+        } catch (e) {
+            return input.split('/')[0].replace(/^www\./, '');
+        }
+    }
+
     // Xử lý báo cáo domain
     reportDomainButton.addEventListener('click', async function() {
-        const domain = reportDomainInput.value.trim().toLowerCase();
-        if (!domain) {
+        const rawInput = reportDomainInput.value.trim().toLowerCase();
+        if (!rawInput) {
             reportDomainResult.textContent = 'Vui lòng nhập domain cần báo cáo';
             return;
         }
-
+        const domain = extractDomainOnly(rawInput);
+        if (!domain || !domain.includes('.')) {
+            reportDomainResult.textContent = 'Domain không hợp lệ';
+            return;
+        }
         try {
             const response = await chrome.runtime.sendMessage({
                 action: 'reportToBackend',

@@ -100,9 +100,20 @@
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'showPhishingWarningPopup' && message.type === 'domain') {
-            warningData = message;
-            createPopup(message.type, message.blockedItem, message.fullUrl, message.reason);
-            sendResponse({ status: "domain warning popup shown" });
+            try {
+                warningData = message;
+                createPopup(message.type, message.blockedItem, message.fullUrl, message.reason);
+                sendResponse({ status: "domain warning popup shown" });
+            } catch (e) {
+                // Nếu không thể hiển thị popup, fallback mở warning.html
+                const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
+                    `?url=${encodeURIComponent(message.fullUrl)}` +
+                    `&listName=${encodeURIComponent('Local Blocklist')}` +
+                    `&reason=${encodeURIComponent(message.reason)}`;
+                window.open(warningPageUrl, '_blank');
+            }
+        } else {
+            console.log('[Phishing Guard] Message không phù hợp:', message);
         }
         return true;
     });

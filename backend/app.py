@@ -238,6 +238,33 @@ def report_item_api():
     final_msg = "Report received." + (f" {blocklist_add_message}" if blocklist_add_message else "")
     return jsonify({"message": final_msg, "report_status": "saved", "blocklist_status": blocklist_add_message}), 201
 
+@app.route('/api/whitelist', methods=['POST'])
+def add_to_whitelist():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing JSON."}), 400
+    item_type = data.get('type', 'domain').lower()
+    value = data.get('value', '')
+    reason = data.get('reason', '')
+    source = data.get('source', 'chrome_extension')
+    if item_type not in ALLOWED_ITEM_TYPES:
+        return jsonify({"error": "Invalid type."}), 400
+    normalized_value = normalize_domain_backend(value) if item_type == 'domain' else normalize_email_backend(value)
+    if not normalized_value:
+        return jsonify({"error": f"Invalid {item_type} value: {value}"}), 400
+    try:
+        exists = db.session.execute(select(Whitelist).where(Whitelist.item_type == item_type, Whitelist.value == normalized_value)).scalar_one_or_none()
+        if exists:
+            return jsonify({"message": f"{item_type.capitalize()} {normalized_value} đã có trong whitelist."}), 200
+        db.session.add(Whitelist(item_type=item_type, value=normalized_value, reason=reason, source=source))
+        db.session.commit()
+        update_data_version(f"whitelist_{item_type}s")
+        return jsonify({"message": f"Đã thêm {item_type} {normalized_value} vào whitelist."}), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"DB error adding {item_type} '{normalized_value}' to whitelist: {e}")
+        return jsonify({"error": "Failed to add to whitelist."}), 500
+
 @app.cli.command("init-db")
 def init_db_command():
     db.create_all();

@@ -7,6 +7,9 @@ const PHISHING_KEYWORDS_VN_DEFAULT = [ "xác minh tài khoản", "đăng nhập 
 // Thêm Map để lưu trữ trạng thái cảnh báo theo tab
 const emailWarningStates = new Map();
 
+// Thêm Map để lưu trữ số lần reload của mỗi tab
+const tabReloadCounts = new Map();
+
 async function loadApiBaseUrl() {
     try {
         const data = await chrome.storage.sync.get('apiBaseUrl');
@@ -47,13 +50,13 @@ chrome.runtime.onStartup.addListener(() => {
 function schedulePeriodicUpdates() {
     chrome.alarms.get('periodicBlocklistUpdate', alarm => {
         if (!alarm) {
-            chrome.alarms.create('periodicBlocklistUpdate', { periodInMinutes: 60 });
+            chrome.alarms.create('periodicBlocklistUpdate', { periodInMinutes: 5 });
             console.log("Periodic blocklist update alarm created.");
         }
     });
     chrome.alarms.get('periodicKeywordUpdate', alarm => {
         if (!alarm) {
-            chrome.alarms.create('periodicKeywordUpdate', { periodInMinutes: 120 });
+            chrome.alarms.create('periodicKeywordUpdate', { periodInMinutes: 10 });
             console.log("Periodic keyword update alarm created.");
         }
     });
@@ -161,8 +164,9 @@ function isUrlInParsedList(url, rules) {
     try {
         const urlObj = new URL(url);
         const domain = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+        // Chỉ so sánh domain chính xác với blocklist
         for (const rule of rules) {
-            if (rule.domain === domain) {
+            if (rule.domain === domain && (!rule.path || rule.path === '/')) {
                 return true;
             }
         }
@@ -224,17 +228,37 @@ async function updateLocalBlocklists() {
     } catch (e) {
         console.warn("Không thể cập nhật whitelist domain từ backend", e);
     }
+
+    // Kiểm tra và cập nhật version
+    try {
+        const response = await fetch(`${API_BASE_URL_BG}/status`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.database_status === 'connected') {
+                // Cập nhật thành công, lưu thời gian cập nhật
+                await chrome.storage.local.set({ lastSuccessfulSync: Date.now() });
+            }
+        }
+    } catch (e) {
+        console.warn("Không thể kiểm tra trạng thái backend", e);
+    }
 }
 
-async function isUrlTemporarilyAllowed(urlString, tabId) {
-    if (!urlString || tabId === undefined || tabId === null) return false;
+async function isUrlTemporarilyAllowed(url, tabId) {
     try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
         const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
         const sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
-        const urlObj = new URL(urlString);
-        const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-        return Array.isArray(sessionWhitelistedUrlsPerTab[tabId]) && sessionWhitelistedUrlsPerTab[tabId].includes(hostname);
-    } catch (error) {
+        
+        // Kiểm tra xem domain có trong whitelist của tab hiện tại không
+        if (sessionWhitelistedUrlsPerTab[tabId] && 
+            sessionWhitelistedUrlsPerTab[tabId].includes(hostname)) {
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.error("Error checking temporary whitelist:", e);
         return false;
     }
 }
@@ -245,21 +269,7 @@ async function checkUrlAgainstLocalLists(tabId, url) {
     }
     const urlObj = new URL(url);
     const domainToCheck = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-    
-    // 1. Kiểm tra whitelist trước
-    try {
-        const { localWhitelists } = await chrome.storage.local.get('localWhitelists');
-        if (localWhitelists && Array.isArray(localWhitelists)) {
-            if (localWhitelists.includes(domainToCheck)) {
-                return { isPhishing: false, reason: "Domain nằm trong whitelist vĩnh viễn" };
-            }
-        }
-    } catch (e) {}
-
-    // 2. Kiểm tra session whitelist (tạm thời)
-    if (await isUrlTemporarilyAllowed(url, tabId)) {
-        return {isPhishing: false, reason: "Đã được người dùng cho phép tạm thời trong phiên này."};
-    }
+    // 1. Chỉ kiểm tra blocklist, bỏ qua whitelist
     try {
         const { combinedLocalBlocklistRules } = await chrome.storage.local.get('combinedLocalBlocklistRules');
         if (combinedLocalBlocklistRules && isUrlInParsedList(url, combinedLocalBlocklistRules)) {
@@ -267,20 +277,11 @@ async function checkUrlAgainstLocalLists(tabId, url) {
             showCustomNotificationOrWarningPage(tabId, url, "Local Blocklist", reason);
             return {isPhishing: true, reason: reason, listName: "Local Blocklist"};
         }
-    } catch (error) {}
-    // Nếu không có trong local blocklist, kiểm tra backend
-    try {
-        const response = await fetch(`${API_BASE_URL_BG}/check?type=domain&value=${encodeURIComponent(domainToCheck)}`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'blocked') {
-                const reason = `Tên miền ${domainToCheck} bị chặn bởi máy chủ.`;
-                showCustomNotificationOrWarningPage(tabId, url, "Backend Blocklist", reason);
-                return {isPhishing: true, reason: reason, listName: "Backend Blocklist"};
-            }
-        }
-    } catch (error) {}
-    return {isPhishing: false, reason: "Không nằm trong bất kỳ danh sách chặn nào."};
+    } catch (error) {
+        console.error('[Phishing Guard][checkUrlAgainstLocalLists] Lỗi khi kiểm tra local blocklist:', error);
+    }
+    // 2. Không kiểm tra backend, không kiểm tra whitelist
+    return {isPhishing: false, reason: "Không nằm trong blocklist."};
 }
 
 async function checkUrlWithBackend(tabId, urlString) {
@@ -322,18 +323,29 @@ async function handleUrlCheck(tabId, url, referrer) {
     }
     // Nếu không bị chặn bởi local list, và cũng không phải user whitelist, thì kiểm tra backend
     if (!localCheckResult.reason || !localCheckResult.reason.includes("Whitelist")) {
-        await checkUrlWithBackend(tabId, url);
+        const backendResult = await checkUrlWithBackend(tabId, url);
+        if (backendResult.isPhishing) {
+            // Nếu backend phát hiện là phishing, hiển thị cảnh báo
+            showCustomNotificationOrWarningPage(tabId, url, backendResult.listName, backendResult.reason, referrer);
+        }
     }
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    // Khi tab reload hoặc chuyển domain, xóa whitelist tạm thời của tab đó
+    // Khi tab reload hoặc chuyển domain
     if (changeInfo.status === 'loading') {
-        const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
-        let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
-        if (sessionWhitelistedUrlsPerTab[tabId]) {
-            delete sessionWhitelistedUrlsPerTab[tabId];
-            await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
+        // Tăng số lần reload
+        const currentCount = tabReloadCounts.get(tabId) || 0;
+        tabReloadCounts.set(tabId, currentCount + 1);
+
+        // Chỉ xóa whitelist tạm thời khi reload lần thứ 2 trở đi
+        if (currentCount >= 1) {
+            const data = await chrome.storage.session.get('sessionWhitelistedUrlsPerTab');
+            let sessionWhitelistedUrlsPerTab = data.sessionWhitelistedUrlsPerTab || {};
+            if (sessionWhitelistedUrlsPerTab[tabId]) {
+                delete sessionWhitelistedUrlsPerTab[tabId];
+                await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
+            }
         }
     }
     if (changeInfo.status === 'complete' && tab.url && tab.active) {
@@ -348,10 +360,45 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 function showCustomNotificationOrWarningPage(tabId, url, listName, reason, referrer) {
     currentPhishingUrl = url;
     currentTabId = tabId;
-
     chrome.storage.local.get(['warningType'], async (settings) => {
         const warningType = settings.warningType || 'warning_page';
-        if (warningType === 'notification') {
+        const openWarningTab = () => {
+            const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
+                `?url=${encodeURIComponent(url)}` +
+                `&listName=${encodeURIComponent(listName)}` +
+                `&reason=${encodeURIComponent(reason)}` +
+                `&tabId=${tabId}` +
+                `&prevSafeUrl=${encodeURIComponent(referrer || 'chrome://newtab')}`;
+            chrome.tabs.create({ url: warningPageUrl });
+        };
+        try {
+            await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                files: ['scripts/show_warning_popup.js']
+            });
+            chrome.tabs.sendMessage(tabId, {
+                action: 'showPhishingWarningPopup',
+                type: 'domain',
+                blockedItem: (new URL(url)).hostname,
+                fullUrl: url,
+                reason: reason
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    chrome.notifications.create('phishingNotif-' + Date.now(), {
+                        type: 'basic',
+                        iconUrl: 'icons/icon-128.png',
+                        title: 'Cảnh Báo Phishing!',
+                        message: `Trang ${url.substring(0, 100)}... có dấu hiệu lừa đảo (${listName}). Lý do: ${reason.substring(0,100)}...`,
+                        priority: 2,
+                        buttons: [{ title: 'Xem chi tiết cảnh báo' }]
+                    }, notifId => {
+                        if (chrome.runtime.lastError) {
+                            openWarningTab();
+                        }
+                    });
+                }
+            });
+        } catch (error) {
             chrome.notifications.create('phishingNotif-' + Date.now(), {
                 type: 'basic',
                 iconUrl: 'icons/icon-128.png',
@@ -359,32 +406,11 @@ function showCustomNotificationOrWarningPage(tabId, url, listName, reason, refer
                 message: `Trang ${url.substring(0, 100)}... có dấu hiệu lừa đảo (${listName}). Lý do: ${reason.substring(0,100)}...`,
                 priority: 2,
                 buttons: [{ title: 'Xem chi tiết cảnh báo' }]
-            });
-        } else {
-            let prevSafeUrl = 'chrome://newtab';
-            if (tabId) {
-                try {
-                    const tab = await chrome.tabs.get(tabId);
-                    if (tab && tab.openerTabId) {
-                        const openerTab = await chrome.tabs.get(tab.openerTabId);
-                        if (openerTab && openerTab.url && openerTab.url !== url) {
-                           prevSafeUrl = openerTab.url;
-                        }
-                    } else if (referrer && referrer !== url && (referrer.startsWith('http:') || referrer.startsWith('https:'))) {
-                         prevSafeUrl = referrer;
-                    }
-                } catch (e) {
-                    console.warn("Error getting previous tab URL:", e);
+            }, notifId => {
+                if (chrome.runtime.lastError) {
+                    openWarningTab();
                 }
-            }
-
-            const warningPageUrl = chrome.runtime.getURL('warning/warning.html') +
-                `?url=${encodeURIComponent(url)}` +
-                `&listName=${encodeURIComponent(listName)}` +
-                `&reason=${encodeURIComponent(reason)}` +
-                `&tabId=${tabId}` +
-                `&prevSafeUrl=${encodeURIComponent(prevSafeUrl)}`;
-            chrome.tabs.update(tabId, { url: warningPageUrl });
+            });
         }
     });
 }
@@ -511,6 +537,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         sessionWhitelistedUrlsPerTab[tabId].push(hostname);
                     }
                     await chrome.storage.session.set({ sessionWhitelistedUrlsPerTab });
+                    // Reset số lần reload khi cho phép truy cập
+                    tabReloadCounts.set(tabId, 0);
                     sendResponse({ success: true });
                 } else {
                     sendResponse({ success: false, error: "No URL or tabId provided" });
@@ -591,8 +619,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } else {
                 sendResponse({});
             }
-        } catch (err) {
-            sendResponse({ success: false, error: err.message });
+        } catch (error) {
+            console.error("Error in message handler:", error);
+            sendResponse({ success: false, error: error.message });
         }
     })();
     return true;
@@ -681,11 +710,36 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // Thêm listener để xóa trạng thái cảnh báo khi tab bị đóng
 chrome.tabs.onRemoved.addListener((tabId) => {
     emailWarningStates.delete(tabId);
+    tabReloadCounts.delete(tabId);
 });
 
 // Thêm listener để xóa trạng thái cảnh báo khi tab được reload
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'loading') {
         emailWarningStates.delete(tabId);
+    }
+});
+
+// Thêm hàm kiểm tra và đồng bộ dữ liệu
+async function checkAndSyncData() {
+    try {
+        const { lastSuccessfulSync } = await chrome.storage.local.get('lastSuccessfulSync');
+        const currentTime = Date.now();
+        const syncInterval = 5 * 60 * 1000; // 5 phút
+
+        if (!lastSuccessfulSync || (currentTime - lastSuccessfulSync) > syncInterval) {
+            console.log("Đã đến lúc đồng bộ dữ liệu...");
+            await updateLocalBlocklists();
+            await loadAndStoreKeywords();
+        }
+    } catch (e) {
+        console.error("Lỗi khi kiểm tra và đồng bộ dữ liệu:", e);
+    }
+}
+
+// Thêm listener cho tab updates để kiểm tra và đồng bộ dữ liệu
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url && tab.active) {
+        await checkAndSyncData();
     }
 });

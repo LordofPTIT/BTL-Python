@@ -46,7 +46,8 @@
       "resources": [
         "warning/warning.html",
         "warning/warning.js",
-        "icons/*"
+        "icons/*",
+        "scripts/show_warning_popup.js"
       ],
       "matches": ["<all_urls>"]
     }

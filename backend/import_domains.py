@@ -8,6 +8,8 @@ from sqlalchemy import create_engine, select, exists, func, inspect, delete
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import Column, Integer, String, DateTime, Text
+import time
+from datetime import datetime
 
 load_dotenv()
 
@@ -54,6 +56,13 @@ class WhitelistImport(BaseImport):
     source = Column(String(100), nullable=True)
     added_on = Column(DateTime, server_default=func.now())
 
+class DataVersionImport(BaseImport):
+    __tablename__ = 'data_version'
+    id = Column(Integer, primary_key=True)
+    data_type = Column(String(50), unique=True, nullable=False)
+    version = Column(String(100), nullable=False, default=lambda: str(time.time()))
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 BaseImport.metadata.create_all(bind=engine_import)
 logger.info("Import script: Tables checked/created if they didn't exist.")
 
@@ -78,6 +87,22 @@ def normalize_domain_import(domain: str) -> str | None:
 def is_valid_email_import(email: str) -> bool:
     if not email or not isinstance(email, str): return False
     return re.fullmatch(EMAIL_REGEX, email) is not None
+
+def update_data_version_import(session, data_type):
+    try:
+        version_entry = session.execute(select(DataVersionImport).filter_by(data_type=data_type)).scalar_one_or_none()
+        new_version = str(time.time())
+        if version_entry:
+            version_entry.version = new_version
+            version_entry.last_updated = datetime.utcnow()
+        else:
+            version_entry = DataVersionImport(data_type=data_type, version=new_version)
+            session.add(version_entry)
+        session.commit()
+        logger.info(f"Updated data version for {data_type} to {new_version}")
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Error updating data version for {data_type}: {e}")
 
 def import_file_to_list(session, ModelClass, item_type, filepath):
     count = 0; added = 0; skipped_exists_db = 0; skipped_invalid = 0; skipped_dup_file = 0; errors = 0
@@ -137,6 +162,8 @@ def import_file_to_list(session, ModelClass, item_type, filepath):
             try:
                  session.bulk_insert_mappings(ModelClass, items_to_insert_mappings)
                  session.commit(); added = len(items_to_insert_mappings)
+                 # Cập nhật version sau khi import thành công
+                 update_data_version_import(session, f"blocklist_{item_type}s")
             except IntegrityError:
                  session.rollback(); logger.warning(f"Integrity error bulk insert {filename}, trying individual."); added_ind = 0
                  for item_map_ind in items_to_insert_mappings:
@@ -147,6 +174,9 @@ def import_file_to_list(session, ModelClass, item_type, filepath):
                      except IntegrityError: session.rollback(); skipped_exists_db +=1
                      except SQLAlchemyError as e_ind: session.rollback(); logger.error(f"Indiv insert error {item_map_ind['value']}: {e_ind}"); errors += 1
                  added = added_ind
+                 if added > 0:
+                     # Cập nhật version sau khi import thành công
+                     update_data_version_import(session, f"blocklist_{item_type}s")
             except SQLAlchemyError as e_bulk: session.rollback(); logger.error(f"Bulk insert error {filename}: {e_bulk}"); errors += len(items_to_insert_mappings); added = 0
         else: logger.info(f"No new items from {filename} to add.")
 
@@ -201,6 +231,11 @@ if __name__ == "__main__":
         remove_duplicates_from_table(db_session_import, BlocklistImport, "email")
         remove_duplicates_from_table(db_session_import, WhitelistImport, "domain")
         remove_duplicates_from_table(db_session_import, WhitelistImport, "email")
+
+        # Cập nhật version cho tất cả các loại dữ liệu sau khi hoàn thành
+        for item_type in ['domain', 'email']:
+            update_data_version_import(db_session_import, f"blocklist_{item_type}s")
+            update_data_version_import(db_session_import, f"whitelist_{item_type}s")
 
     except Exception as main_e: logger.critical(f"Critical error in main import: {main_e}", exc_info=True)
     finally: db_session_import.close(); logger.info("Import script DB session closed.")
