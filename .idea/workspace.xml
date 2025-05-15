@@ -5,7 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ab90ddc6-247d-4e1d-9fc2-90d89a7ead3c" name="Changes" comment="16/04/2025">
-      <change beforePath="$PROJECT_DIR$/backend/instance/local_phishing_guard.db" beforeDir="false" afterPath="$PROJECT_DIR$/backend/instance/local_phishing_guard.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -79,7 +80,7 @@
     &quot;dart.analysis.tool.window.visible&quot;: &quot;false&quot;,
     &quot;git-widget-placeholder&quot;: &quot;main&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;D:/3/BTL-Python&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/Tai lieu mon hoc/Python/BTL-Python&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -95,7 +96,7 @@
     ]
   }
 }</component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.app">
     <configuration name="app" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="2" />
       <option name="ENV_FILES" value="" />
@@ -196,6 +197,8 @@
       <workItem from="1747140125741" duration="5573000" />
       <workItem from="1747145982534" duration="20493000" />
       <workItem from="1747181189545" duration="6546000" />
+      <workItem from="1747300738793" duration="471000" />
+      <workItem from="1747301249093" duration="33000" />
     </task>
     <task id="LOCAL-00001" summary="16/04/2025">
       <option name="closed" value="true" />
